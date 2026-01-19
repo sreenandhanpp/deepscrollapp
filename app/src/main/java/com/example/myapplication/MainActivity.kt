@@ -8,11 +8,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.collectAsState
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.myapplication.ui.dashboard.DashboardScreen
 import com.example.myapplication.ui.dashboard.MainViewModel
+import com.example.myapplication.ui.onboarding.OnboardingHost
 import com.example.myapplication.ui.theme.AuraTheme
 
 class MainActivity : ComponentActivity() {
@@ -20,19 +22,35 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 🔴 REQUIRED for Android 13+
-        requestNotificationPermission()
-
         enableEdgeToEdge()
 
         setContent {
             AuraTheme {
                 val mainViewModel: MainViewModel = viewModel()
 
+                // 🔹 Observe onboarding state
+                val onboardingCompleted =
+                    mainViewModel.onboardingCompleted.collectAsState().value
+
                 Surface {
-                    DashboardScreen(
-                        viewModel = mainViewModel
-                    )
+                    if (onboardingCompleted) {
+
+                        // ✅ Ask notification permission AFTER onboarding
+                        requestNotificationPermission()
+
+                        DashboardScreen(
+                            viewModel = mainViewModel
+                        )
+
+                    } else {
+
+                        // 🧭 Show onboarding flow
+                        OnboardingHost(
+                            onFinish = {
+                                mainViewModel.completeOnboarding()
+                            }
+                        )
+                    }
                 }
             }
         }
