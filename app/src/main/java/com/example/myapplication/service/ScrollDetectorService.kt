@@ -1,6 +1,7 @@
 package com.example.myapplication.service
 
 import android.accessibilityservice.AccessibilityService
+import android.os.Build
 import android.view.accessibility.AccessibilityEvent
 import com.example.myapplication.data.ScrollDataStore
 import com.example.myapplication.data.ReelSettingsStore
@@ -10,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class ScrollDetectorService : AccessibilityService() {
+
 
     /* =========================================================
        ================= SESSION STATE =========================
@@ -73,12 +75,31 @@ class ScrollDetectorService : AccessibilityService() {
        ========================================================= */
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        // 1️⃣ Only scroll events
         if (event.eventType != AccessibilityEvent.TYPE_VIEW_SCROLLED) return
 
+        // 2️⃣ Only Instagram
+        val packageName = event.packageName?.toString() ?: return
+        if (packageName != "com.instagram.android") return
+
+        // 3️⃣ Ignore horizontal scrolls (stories, carousels)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            if (kotlin.math.abs(event.scrollDeltaX) >
+                kotlin.math.abs(event.scrollDeltaY)
+            ) return
+        }
+
+        // 4️⃣ Ignore fake/no-op events
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            if (event.scrollDeltaY == 0 && event.maxScrollY == 0) return
+        }
+
         val now = System.currentTimeMillis()
+        // -------------------------------------------------
+        // ⬇️ KEEP ALL YOUR EXISTING LOGIC BELOW THIS LINE ⬇️
+        // -------------------------------------------------
 
         /* -------- Reset session on inactivity -------- */
-
         if (now - lastAnyScrollTime > SESSION_RESET_MS) {
             sessionStartTime = 0L
             sessionStartScrollCount = 0
@@ -88,7 +109,6 @@ class ScrollDetectorService : AccessibilityService() {
         lastAnyScrollTime = now
 
         /* -------- Start session -------- */
-
         if (sessionStartTime == 0L) {
             sessionStartTime = now
             sessionStartScrollCount = cachedScrollCount
@@ -97,7 +117,6 @@ class ScrollDetectorService : AccessibilityService() {
         }
 
         /* -------- Ignore early exploration -------- */
-
         if (now - sessionStartTime < MIN_SESSION_MS) {
             lastScrollTime = now
             return

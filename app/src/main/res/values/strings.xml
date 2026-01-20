@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">My Application</string>
+    <string name="app_name">Unscroll</string>
     <string name="accessibility_service_description">
     Detects fast scrolling to encourage mindful usage
 </string>

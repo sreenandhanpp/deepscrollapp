@@ -74,7 +74,7 @@ object NotificationHelper {
         ensureChannel(manager)
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_logo_photoroom)
             .setContentTitle("Just a quick check-in")
             .setContentText("You’ve scrolled $count reels so far.")
             .setContentIntent(dashboardIntent(context))
