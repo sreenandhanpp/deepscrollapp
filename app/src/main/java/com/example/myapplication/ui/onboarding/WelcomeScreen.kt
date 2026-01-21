@@ -1,5 +1,6 @@
 package com.example.myapplication.ui.onboarding
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -10,8 +11,38 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.example.myapplication.R
+
+/* ----------------------------- */
+/* --------- SHAPE ------------- */
+/* ----------------------------- */
+
+
+
+/* ----------------------------- */
+/* -------- UI PARTS ----------- */
+/* ----------------------------- */
+
+@Composable
+private fun ArcBackground() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(360.dp)
+            .background(
+                color = MaterialTheme.colorScheme.primary,
+                shape = RoundedCornerShape(
+                    bottomStart = 240.dp,
+                    bottomEnd = 240.dp
+                )
+            )
+    )
+}
+
 
 @Composable
 private fun TrustLine(text: String) {
@@ -27,56 +58,61 @@ private fun TrustLine(text: String) {
 @Composable
 private fun CalmIllustration() {
     Box(
-        modifier = Modifier.size(140.dp),
+        modifier = Modifier.size(150.dp),
         contentAlignment = Alignment.Center
     ) {
 
-        // Outer soft glow
         Box(
             modifier = Modifier
-                .size(120.dp)
+                .size(140.dp)
                 .clip(CircleShape)
                 .background(
                     Brush.radialGradient(
                         colors = listOf(
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.30f),
                             MaterialTheme.colorScheme.primary.copy(alpha = 0.05f)
                         )
                     )
                 )
         )
 
-        // Inner focus dot
-        Box(
-            modifier = Modifier
-                .size(60.dp)
-                .clip(CircleShape)
-                .background(
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
-                )
+        Image(
+            painter = painterResource(id = R.drawable.transparent_bg_logo),
+            contentDescription = "App logo",
+            modifier = Modifier.size(200.dp)
         )
+
     }
 }
+
+
+
+
+/* ----------------------------- */
+/* -------- MAIN SCREEN -------- */
+/* ----------------------------- */
 
 @Composable
 fun WelcomeScreen(
     onNext: () -> Unit
 ) {
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+
+        // Background arc (decorative only)
+        ArcBackground()
+
+        // This Box guarantees the card is centered vertically & horizontally
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(20.dp),
+                .padding(horizontal = 20.dp),
             contentAlignment = Alignment.Center
         ) {
 
-            // Main Card
+            // Main Card (TRUE vertical center)
             Surface(
                 shape = RoundedCornerShape(28.dp),
-                tonalElevation = 2.dp,
+                color = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -90,7 +126,7 @@ fun WelcomeScreen(
                     Spacer(modifier = Modifier.height(28.dp))
 
                     Text(
-                        text = "Notice your scrolling,\nwithout pressure.",
+                        text = "Notice your scrolling,\ngently and with kindness.",
                         style = MaterialTheme.typography.headlineSmall,
                         textAlign = TextAlign.Center
                     )
@@ -98,7 +134,7 @@ fun WelcomeScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     Text(
-                        text = "This app gently helps you become aware of unconscious scrolling — nothing more.",
+                        text = "Unscroll gently helps you become aware of unconscious scrolling.",
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
                         lineHeight = MaterialTheme.typography.bodyMedium.lineHeight
@@ -111,7 +147,6 @@ fun WelcomeScreen(
 
                     Spacer(modifier = Modifier.height(28.dp))
 
-                    // 👉 THIS IS THE KEY ADDITION
                     Button(
                         onClick = onNext,
                         modifier = Modifier.fillMaxWidth(),
@@ -124,3 +159,5 @@ fun WelcomeScreen(
         }
     }
 }
+
+
