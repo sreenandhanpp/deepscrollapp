@@ -6,7 +6,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.filled.Swipe
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -15,25 +14,34 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
+import androidx.compose.ui.platform.LocalFocusManager
+
 
 @Composable
 fun DashboardScreen(
     viewModel: MainViewModel
 ) {
-    // 🔹 Scroll count from DataStore
-    val scrollCount = viewModel.scrollCount.collectAsState().value
+    val usageTimeMs = viewModel.totalUsageTime.collectAsState().value
+    val deepScrollCount = viewModel.deepScrollCount.collectAsState().value
+    val notifyAfterMinutes =
+        viewModel.notifyAfterMinutes.collectAsState().value
 
-    // 🔹 Local input state for reel interval
+    val usageMinutes = (usageTimeMs / 60_000f).roundToInt()
+
+    // 🧘 Local input state (prevents instant updates while typing)
     val tempInput = remember {
-        mutableStateOf(viewModel.reelsNotifyInterval.value.toString())
+        mutableStateOf(notifyAfterMinutes.toString())
     }
+    val focusManager = LocalFocusManager.current
+    val showSavedMessage = remember { mutableStateOf(false) }
+
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -42,15 +50,14 @@ fun DashboardScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // 👋 Greeting
             Text(
-                text = "Hello, Mindful Human",
+                text = "Hello 👋",
                 style = MaterialTheme.typography.headlineMedium
             )
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // 🛡 Aura Protection Toggle
+            // 🌿 Unscroll card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
@@ -58,38 +65,24 @@ fun DashboardScreen(
                     containerColor = MaterialTheme.colorScheme.primaryContainer
                 )
             ) {
-                Row(
-                    modifier = Modifier.padding(20.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(
-                            text = "Aura Protection",
-                            style = MaterialTheme.typography.titleLarge
-                        )
-                        Text(
-                            text = "Stay intentional while browsing",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-
-                    Switch(
-                        checked = viewModel.isTrackingEnabled.value,
-                        onCheckedChange = { viewModel.toggleTracking() },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = MaterialTheme.colorScheme.primary
-                        )
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(
+                        text = "Unscroll",
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Quiet awareness while you scroll",
+                        style = MaterialTheme.typography.bodyMedium
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(32.dp))
 
-            // 🔔 Reel Awareness Section
+            // ⏱ Gentle reminder
             Text(
-                text = "Reel awareness notification",
+                text = "Gentle reminder",
                 style = MaterialTheme.typography.titleMedium
             )
 
@@ -98,17 +91,24 @@ fun DashboardScreen(
             OutlinedTextField(
                 value = tempInput.value,
                 onValueChange = { tempInput.value = it },
-                label = { Text("Notify every N reels") },
+                label = { Text("Remind me after (minutes)") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            // ✅ Set button (intentional action)
             Button(
                 onClick = {
-                    tempInput.value.toIntOrNull()?.let { number ->
-                        viewModel.updateReelInterval(number)
+                    tempInput.value.toIntOrNull()?.let { minutes ->
+                        if (minutes > 0) {
+                            viewModel.updateNotifyAfterMinutes(minutes)
+
+                            // ✅ UX fixes
+                            focusManager.clearFocus()     // removes blinking cursor
+                            showSavedMessage.value = true
+                        }
                     }
                 },
                 modifier = Modifier.align(Alignment.End)
@@ -116,37 +116,58 @@ fun DashboardScreen(
                 Text("Set")
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            if (showSavedMessage.value) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "We’ll gently remind you after ${notifyAfterMinutes} minutes.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                )
+            }
 
-            // 📊 Stats Row
+
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // 📊 Reflection
+            Text(
+                text = "Today’s reflection",
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
 
                 StatCard(
-                    title = "Scrolls Detected",
-                    value = scrollCount.toString(),
-                    icon = Icons.Default.Swipe,
+                    title = "Time on Instagram",
+                    value = if (usageMinutes == 0) "—" else "$usageMinutes min",
+                    icon = Icons.Default.Timer,
                     modifier = Modifier.weight(1f)
                 )
 
                 StatCard(
-                    title = "Current Streak",
-                    value = "5 Days",
+                    title = "Deep scroll moments",
+                    value = deepScrollCount.toString(),
                     icon = Icons.Default.FlashOn,
                     modifier = Modifier.weight(1f)
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.weight(1f))
 
-            StatCard(
-                title = "Saved Time",
-                value = "1.2h",
-                icon = Icons.Default.Timer,
-                modifier = Modifier.fillMaxWidth()
+            Text(
+                text = "Unscroll doesn’t block — it helps you notice.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                modifier = Modifier.align(Alignment.CenterHorizontally)
             )
+
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
+

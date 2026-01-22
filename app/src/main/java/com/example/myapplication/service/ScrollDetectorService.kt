@@ -3,191 +3,136 @@ package com.example.myapplication.service
 import android.accessibilityservice.AccessibilityService
 import android.os.Build
 import android.view.accessibility.AccessibilityEvent
+import com.example.myapplication.data.NotificationSettingsStore
 import com.example.myapplication.data.ScrollDataStore
-import com.example.myapplication.data.ReelSettingsStore
+import com.example.myapplication.data.UsageDataStore
 import com.example.myapplication.utils.NotificationHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 class ScrollDetectorService : AccessibilityService() {
 
-
-    /* =========================================================
-       ================= SESSION STATE =========================
-       ========================================================= */
+    /* ================= SESSION ================= */
 
     private var sessionStartTime = 0L
-    private var lastAnyScrollTime = 0L
-
-    private val SESSION_RESET_MS = 45_000L   // inactivity resets session
-    private val MIN_SESSION_MS = 3_000L      // ignore first 3s (testing)
-
-    private var sessionStartScrollCount = 0
-    private var lastAwarenessTriggerAt = 0
-
-    /* =========================================================
-       ================= SCROLL COUNT (CANONICAL) ===============
-       ========================================================= */
-
-    private var cachedScrollCount = 0
-
-    // 🔒 DEBOUNCE (THIS FIXES DOUBLE COUNT)
-    private var lastCountedScrollTime = 0L
-    private val SCROLL_DEBOUNCE_MS = 400L
-
-    /* =========================================================
-       ================= USER CONFIG ============================
-       ========================================================= */
-
-    private var reelInterval = 10
-
-    /* =========================================================
-       ================= MINDLESS DETECTION =====================
-       ========================================================= */
-
     private var lastScrollTime = 0L
+
+    private val SESSION_RESET_MS = 45_000L
+    private val MIN_SESSION_MS = 2_000L   // testing
+
+    /* ================= USER SETTING ================= */
+
+    private var notifyAfterMinutes = 1    // testing default
+
+    /* ================= DEEP SCROLL ================= */
+
     private var continuousScrollTime = 0L
+    private val PAUSE_THRESHOLD_MS = 1_200L
+    private val NOTIFICATION_COOLDOWN_MS = 30_000L
 
-    private val PAUSE_THRESHOLD_MS = 800L
-    private val MIN_CONTINUOUS_SCROLL_MS = 5_000L   // testing
-    private val NOTIFICATION_COOLDOWN_MS = 15_000L  // testing
-
-    private var lastMindlessNotificationTime = 0L
-
-    /* =========================================================
-       ================= SERVICE SETUP ==========================
-       ========================================================= */
+    private var lastNotificationTime = 0L
+    private var notificationShownThisSession = false
 
     override fun onServiceConnected() {
         super.onServiceConnected()
 
-        // Load user-defined reel interval
         CoroutineScope(Dispatchers.IO).launch {
-            ReelSettingsStore.intervalFlow(applicationContext).collect {
-                reelInterval = it
-            }
+            NotificationSettingsStore
+                .notifyAfterMinutesFlow(applicationContext)
+                .collect {
+                    notifyAfterMinutes = it.coerceAtLeast(1)
+                }
         }
     }
 
-    /* =========================================================
-       ================= MAIN EVENT HANDLER =====================
-       ========================================================= */
-
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        // 1️⃣ Only scroll events
+
+        /* 1️⃣ Only scroll events */
         if (event.eventType != AccessibilityEvent.TYPE_VIEW_SCROLLED) return
 
-        // 2️⃣ Only Instagram
-        val packageName = event.packageName?.toString() ?: return
-        if (packageName != "com.instagram.android") return
+        /* 2️⃣ Instagram only */
+        if (event.packageName?.toString() != "com.instagram.android") return
 
-        // 3️⃣ Ignore horizontal scrolls (stories, carousels)
+        /* 3️⃣ Ignore horizontal & fake scrolls */
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            if (kotlin.math.abs(event.scrollDeltaX) >
-                kotlin.math.abs(event.scrollDeltaY)
-            ) return
-        }
-
-        // 4️⃣ Ignore fake/no-op events
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            if (abs(event.scrollDeltaX) > abs(event.scrollDeltaY)) return
             if (event.scrollDeltaY == 0 && event.maxScrollY == 0) return
         }
 
         val now = System.currentTimeMillis()
-        // -------------------------------------------------
-        // ⬇️ KEEP ALL YOUR EXISTING LOGIC BELOW THIS LINE ⬇️
-        // -------------------------------------------------
 
-        /* -------- Reset session on inactivity -------- */
-        if (now - lastAnyScrollTime > SESSION_RESET_MS) {
-            sessionStartTime = 0L
-            sessionStartScrollCount = 0
-            lastAwarenessTriggerAt = 0
-            continuousScrollTime = 0L
+        /* ---------- Session reset on inactivity ---------- */
+        if (lastScrollTime != 0L && now - lastScrollTime > SESSION_RESET_MS) {
+            endSession()
         }
-        lastAnyScrollTime = now
 
-        /* -------- Start session -------- */
+        /* ---------- Start session ---------- */
         if (sessionStartTime == 0L) {
             sessionStartTime = now
-            sessionStartScrollCount = cachedScrollCount
             lastScrollTime = now
             return
         }
 
-        /* -------- Ignore early exploration -------- */
+        /* ---------- Ignore early exploration ---------- */
         if (now - sessionStartTime < MIN_SESSION_MS) {
             lastScrollTime = now
             return
         }
 
-        /* =====================================================
-           ===== CANONICAL SCROLL COUNT (DEBOUNCED) =============
-           ===================================================== */
-
-        var didCountScroll = false
-
-        if (now - lastCountedScrollTime > SCROLL_DEBOUNCE_MS) {
-            lastCountedScrollTime = now
-            didCountScroll = true
-
-            cachedScrollCount++
-
-            CoroutineScope(Dispatchers.IO).launch {
-                ScrollDataStore.incrementScroll(applicationContext)
-            }
-        }
-
-        /* =====================================================
-           ============ REEL AWARENESS (SESSION) =================
-           ===================================================== */
-
-        if (didCountScroll) {
-            val reelsThisSession = cachedScrollCount - sessionStartScrollCount
-
-            if (
-                reelInterval > 0 &&
-                reelsThisSession > 0 &&
-                reelsThisSession % reelInterval == 0 &&
-                reelsThisSession != lastAwarenessTriggerAt
-            ) {
-                lastAwarenessTriggerAt = reelsThisSession
-
-                NotificationHelper.showReelAwarenessNotification(
-                    context = applicationContext,
-                    count = reelsThisSession
-                )
-            }
-        }
-
-        /* =====================================================
-           ============ MINDLESS SCROLL DETECTION ===============
-           ===================================================== */
-
-        if (now - lastScrollTime < PAUSE_THRESHOLD_MS) {
-            continuousScrollTime += (now - lastScrollTime)
-        } else {
-            continuousScrollTime = 0L
-        }
-
+        /* ---------- Accumulate deep scrolling ---------- */
+        val delta = now - lastScrollTime
         lastScrollTime = now
 
-        if (
-            continuousScrollTime >= MIN_CONTINUOUS_SCROLL_MS &&
-            now - lastMindlessNotificationTime > NOTIFICATION_COOLDOWN_MS
-        ) {
-            lastMindlessNotificationTime = now
-            continuousScrollTime = 0L
-            sessionStartTime = now
-
-            // Prevent overlap with awareness notifications
-            lastAwarenessTriggerAt =
-                cachedScrollCount - sessionStartScrollCount
-
-            NotificationHelper.showMindfulNotification(applicationContext)
+        if (delta < PAUSE_THRESHOLD_MS) {
+            continuousScrollTime += delta
+        } else {
+            // natural pause → slow decay, not reset
+            continuousScrollTime =
+                (continuousScrollTime - 1_000L).coerceAtLeast(0L)
         }
+
+        val thresholdMs = notifyAfterMinutes * 60_000L
+
+        /* ---------- Trigger notification ---------- */
+        if (
+            !notificationShownThisSession &&
+            continuousScrollTime >= thresholdMs &&
+            now - lastNotificationTime > NOTIFICATION_COOLDOWN_MS
+        ) {
+            lastNotificationTime = now
+            notificationShownThisSession = true
+
+            CoroutineScope(Dispatchers.IO).launch {
+                UsageDataStore.incrementDeepScroll(applicationContext)
+            }
+
+            NotificationHelper.showMindfulNotification(
+                applicationContext,
+                notifyAfterMinutes
+            )
+        }
+    }
+
+    private fun endSession() {
+        if (sessionStartTime == 0L) return
+
+        val duration = lastScrollTime - sessionStartTime
+        if (duration > 0) {
+            CoroutineScope(Dispatchers.IO).launch {
+                UsageDataStore.addSessionTime(applicationContext, duration)
+            }
+        }
+
+        // reset everything
+        sessionStartTime = 0L
+        lastScrollTime = 0L
+        continuousScrollTime = 0L
+        notificationShownThisSession = false
     }
 
     override fun onInterrupt() {}
 }
+
+

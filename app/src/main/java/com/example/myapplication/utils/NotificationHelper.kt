@@ -15,7 +15,7 @@ import com.example.myapplication.R
 
 object NotificationHelper {
 
-    private const val CHANNEL_ID = "mindful_scroll_channel"
+    private const val CHANNEL_ID = "unscroll_mindful_channel"
 
     private fun hasPermission(context: Context): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
@@ -26,12 +26,15 @@ object NotificationHelper {
 
     private fun ensureChannel(manager: NotificationManager) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Mindful Scrolling",
-                NotificationManager.IMPORTANCE_HIGH
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_ID,
+                    "Mindful Check-ins",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Gentle awareness reminders"
+                }
             )
-            manager.createNotificationChannel(channel)
         }
     }
 
@@ -47,26 +50,10 @@ object NotificationHelper {
         )
     }
 
-    fun showMindfulNotification(context: Context) {
-        if (!hasPermission(context)) return
-
-        val manager =
-            context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        ensureChannel(manager)
-
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Pause for a moment 🌿")
-            .setContentText("You've been scrolling for a while. Want to check in?")
-            .setContentIntent(dashboardIntent(context))
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .build()
-
-        manager.notify(System.currentTimeMillis().toInt(), notification)
-    }
-
-    fun showReelAwarenessNotification(context: Context, count: Int) {
+    fun showMindfulNotification(
+        context: Context,
+        minutes: Int
+    ) {
         if (!hasPermission(context)) return
 
         val manager =
@@ -75,13 +62,13 @@ object NotificationHelper {
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_logo_photoroom)
-            .setContentTitle("Just a quick check-in")
-            .setContentText("You’ve scrolled $count reels so far.")
+            .setContentTitle("Just a gentle check-in 🌿")
+            .setContentText("You’ve been scrolling for about $minutes minutes.")
             .setContentIntent(dashboardIntent(context))
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
 
-        manager.notify(100_000 + count, notification)
+        manager.notify(System.currentTimeMillis().toInt(), notification)
     }
 }
