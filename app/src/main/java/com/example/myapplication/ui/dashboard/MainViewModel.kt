@@ -1,7 +1,6 @@
 package com.example.myapplication.ui.dashboard
 
 import android.app.Application
-import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.myapplication.data.*
@@ -14,7 +13,6 @@ class MainViewModel(
 ) : AndroidViewModel(application) {
 
     /* ---------------- Onboarding ---------------- */
-
     val onboardingCompleted =
         OnboardingStore
             .onboardingCompletedFlow(application)
@@ -32,9 +30,10 @@ class MainViewModel(
 
     /* ---------------- Meaningful reflection data ---------------- */
 
-    val totalUsageTime =
+    // UPDATED: Use the new minutes flow
+    val totalUsageMinutesToday =
         UsageDataStore
-            .totalTimeFlow(application)
+            .totalTimeMinutesFlow(application)  // ← changed from totalTimeFlow()
             .stateIn(
                 scope = viewModelScope,
                 started = SharingStarted.WhileSubscribed(5_000),

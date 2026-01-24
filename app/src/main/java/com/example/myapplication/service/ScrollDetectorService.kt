@@ -2,6 +2,8 @@ package com.example.myapplication.service
 
 import android.accessibilityservice.AccessibilityService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import com.example.myapplication.data.NotificationSettingsStore
 import com.example.myapplication.data.UsageDataStore
@@ -14,23 +16,32 @@ import kotlin.math.abs
 class ScrollDetectorService : AccessibilityService() {
 
     /* ================= SESSION ================= */
-
     private var sessionStartTime = 0L
-    private var lastScrollTime = 0L
+    private var lastEventTime = 0L           // Last time ANY Instagram event happened
     private var accumulatedSessionTime = 0L
 
     private val SESSION_RESET_MS = 20_000L
     private val MIN_SESSION_MS = 2_000L
 
-    /* ================= USER SETTING ================= */
-
+    /* ================= MINDFUL NOTIFICATION ================= */
     private var notifyAfterMinutes = 1
-
-    /* ================= NOTIFICATION ================= */
-
-    private val NOTIFICATION_COOLDOWN_MS = 15_000L
+    private val NOTIFICATION_COOLDOWN_MS = 10_000L
     private var lastNotificationTime = 0L
-    private var notificationShownThisSession = false
+    private var lastNotifiedMinute = 0
+    private var wasDeepSession = false
+
+    /* ================= RAPID SCROLLING DETECTION ================= */
+    private var rapidScrollStreak = 0
+    private var lastRapidScrollTime = 0L
+
+    private val RAPID_SCROLL_THRESHOLD_MS = 500L
+    private val RAPID_SCROLL_STREAK_LIMIT = 3
+    private val UNCONSCIOUS_COOLDOWN_MS = 45_000L
+    private var lastUnconsciousNotificationTime = 0L
+
+    /* ================= IDLE TIMEOUT ================= */
+    private val handler = Handler(Looper.getMainLooper())
+    private var endSessionRunnable: Runnable? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -45,78 +56,128 @@ class ScrollDetectorService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        val packageName = event.packageName?.toString() ?: return
 
-        if (event.eventType != AccessibilityEvent.TYPE_VIEW_SCROLLED) return
-        if (event.packageName?.toString() != "com.instagram.android") return
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            if (abs(event.scrollDeltaX) > abs(event.scrollDeltaY)) return
-            if (event.scrollDeltaY == 0 && event.maxScrollY == 0) return
+        // Early exit if not Instagram → end session if leaving
+        if (packageName != "com.instagram.android") {
+            if (sessionStartTime != 0L) endSession()
+            return
         }
 
         val now = System.currentTimeMillis()
 
-        /* ---------- Reset session ---------- */
-        if (lastScrollTime != 0L && now - lastScrollTime > SESSION_RESET_MS) {
+        val isScrollEvent = event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED
+
+        if (isScrollEvent) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                if (abs(event.scrollDeltaX) > abs(event.scrollDeltaY)) return
+                if (event.scrollDeltaY == 0 && event.maxScrollY == 0) return
+            }
+        }
+
+        // Reset if idle
+        if (lastEventTime != 0L && now - lastEventTime > SESSION_RESET_MS) {
             endSession()
         }
 
-        /* ---------- Start session ---------- */
+        // Start session on first event
         if (sessionStartTime == 0L) {
             sessionStartTime = now
-            lastScrollTime = now
+            lastEventTime = now
+            lastNotifiedMinute = 0
+            rapidScrollStreak = 0
+            lastRapidScrollTime = 0L
+            wasDeepSession = false
+        } else {
+            // Accumulate real elapsed time (works even without scrolls!)
+            val delta = now - lastEventTime
+            accumulatedSessionTime += delta
+            lastEventTime = now
+
+            // Rapid scroll detection ONLY on scroll events
+            if (isScrollEvent) {
+                val timeSinceLastScroll = now - lastRapidScrollTime
+                if (timeSinceLastScroll < RAPID_SCROLL_THRESHOLD_MS) {
+                    rapidScrollStreak++
+                } else {
+                    rapidScrollStreak = 1
+                }
+                lastRapidScrollTime = now
+
+                if (rapidScrollStreak >= RAPID_SCROLL_STREAK_LIMIT &&
+                    now - lastUnconsciousNotificationTime > UNCONSCIOUS_COOLDOWN_MS
+                ) {
+                    lastUnconsciousNotificationTime = now
+                    NotificationHelper.showUnconsciousScrollingNotification(applicationContext)
+                }
+            }
+        }
+
+        if (accumulatedSessionTime < MIN_SESSION_MS) {
+            scheduleSessionTimeout()
             return
         }
 
-        /* ---------- Accumulate time properly ---------- */
-        val delta = now - lastScrollTime
-        lastScrollTime = now
-
-        // Count time even if user is watching reels
-        accumulatedSessionTime += delta
-
-        if (accumulatedSessionTime < MIN_SESSION_MS) return
-
-        val thresholdMs = notifyAfterMinutes * 60_000L
+        // Mindful notification
+        val currentMinutes = (accumulatedSessionTime / 60_000L).toInt()
 
         if (
-            !notificationShownThisSession &&
-            accumulatedSessionTime >= thresholdMs &&
+            currentMinutes >= notifyAfterMinutes &&
+            currentMinutes % notifyAfterMinutes == 0 &&
+            currentMinutes != lastNotifiedMinute &&
             now - lastNotificationTime > NOTIFICATION_COOLDOWN_MS
         ) {
-            notificationShownThisSession = true
+            lastNotifiedMinute = currentMinutes
             lastNotificationTime = now
-
-            CoroutineScope(Dispatchers.IO).launch {
-                UsageDataStore.addSessionTime(
-                    applicationContext,
-                    accumulatedSessionTime
-                )
-            }
+            wasDeepSession = true
 
             NotificationHelper.showMindfulNotification(
                 applicationContext,
-                notifyAfterMinutes
+                currentMinutes
             )
         }
+
+        scheduleSessionTimeout()
+    }
+
+    private fun scheduleSessionTimeout() {
+        endSessionRunnable?.let { handler.removeCallbacks(it) }
+        endSessionRunnable = Runnable { endSession() }
+        handler.postDelayed(endSessionRunnable!!, SESSION_RESET_MS)
     }
 
     private fun endSession() {
         if (sessionStartTime == 0L) return
 
-        CoroutineScope(Dispatchers.IO).launch {
-            UsageDataStore.addSessionTime(
-                applicationContext,
-                accumulatedSessionTime
-            )
+        if (accumulatedSessionTime >= MIN_SESSION_MS) {
+            CoroutineScope(Dispatchers.IO).launch {
+                // Save time in milliseconds (UsageDataStore converts to minutes)
+                UsageDataStore.addSessionTime(applicationContext, accumulatedSessionTime)
+
+                if (wasDeepSession) {
+                    UsageDataStore.incrementDeepScroll(applicationContext)
+                }
+            }
         }
 
+        // Reset all
         sessionStartTime = 0L
-        lastScrollTime = 0L
+        lastEventTime = 0L
         accumulatedSessionTime = 0L
-        notificationShownThisSession = false
+        lastNotifiedMinute = 0
+        lastNotificationTime = 0L
+        rapidScrollStreak = 0
+        lastRapidScrollTime = 0L
+        lastUnconsciousNotificationTime = 0L
+        wasDeepSession = false
+
+        endSessionRunnable?.let { handler.removeCallbacks(it) }
+        endSessionRunnable = null
     }
 
-    override fun onInterrupt() {}
+    override fun onInterrupt() = endSession()
+    override fun onDestroy() {
+        endSession()
+        super.onDestroy()
+    }
 }
-

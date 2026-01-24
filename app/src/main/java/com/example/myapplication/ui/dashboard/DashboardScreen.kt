@@ -7,35 +7,29 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import kotlin.math.roundToInt
 import androidx.compose.ui.platform.LocalFocusManager
-
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun DashboardScreen(
     viewModel: MainViewModel
 ) {
-    val usageTimeMs = viewModel.totalUsageTime.collectAsState().value
-    val deepScrollCount = viewModel.deepScrollCount.collectAsState().value
-    val notifyAfterMinutes =
-        viewModel.notifyAfterMinutes.collectAsState().value
+    val usageMinutesToday by viewModel.totalUsageMinutesToday.collectAsState()
+    val deepScrollCount by viewModel.deepScrollCount.collectAsState()
+    val notifyAfterMinutes by viewModel.notifyAfterMinutes.collectAsState()
 
-    val usageMinutes = (usageTimeMs / 60_000f).roundToInt()
-
-    // 🧘 Local input state (prevents instant updates while typing)
-    val tempInput = remember {
-        mutableStateOf(notifyAfterMinutes.toString())
-    }
+    // Local input state
+    var tempInput by remember { mutableStateOf(notifyAfterMinutes.toString()) }
     val focusManager = LocalFocusManager.current
-    val showSavedMessage = remember { mutableStateOf(false) }
+    var showSavedMessage by remember { mutableStateOf(false) }
+    var savedValue by remember { mutableStateOf("") } // To show the newly saved value
 
+    val coroutineScope = rememberCoroutineScope()
 
     Box(
         modifier = Modifier
@@ -47,14 +41,11 @@ fun DashboardScreen(
                 .fillMaxSize()
                 .padding(20.dp)
         ) {
-
             Spacer(modifier = Modifier.height(24.dp))
-
             Text(
                 text = "Hello 👋",
                 style = MaterialTheme.typography.headlineMedium
             )
-
             Spacer(modifier = Modifier.height(24.dp))
 
             // 🌿 Unscroll card
@@ -85,12 +76,16 @@ fun DashboardScreen(
                 text = "Gentle reminder",
                 style = MaterialTheme.typography.titleMedium
             )
-
             Spacer(modifier = Modifier.height(8.dp))
 
             OutlinedTextField(
-                value = tempInput.value,
-                onValueChange = { tempInput.value = it },
+                value = tempInput,
+                onValueChange = { newValue ->
+                    // Only allow positive integers
+                    if (newValue.isEmpty() || newValue.all { it.isDigit() }) {
+                        tempInput = newValue
+                    }
+                },
                 label = { Text("Remind me after (minutes)") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
@@ -98,16 +93,22 @@ fun DashboardScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // ✅ Set button (intentional action)
+            // ✅ Set button
             Button(
                 onClick = {
-                    tempInput.value.toIntOrNull()?.let { minutes ->
+                    tempInput.toIntOrNull()?.let { minutes ->
                         if (minutes > 0) {
                             viewModel.updateNotifyAfterMinutes(minutes)
+                            savedValue = minutes.toString() // Remember what we just saved
+                            showSavedMessage = true
 
-                            // ✅ UX fixes
-                            focusManager.clearFocus()     // removes blinking cursor
-                            showSavedMessage.value = true
+                            coroutineScope.launch {
+                                delay(3000) // Hide message after 3 seconds
+                                showSavedMessage = false
+                            }
+
+                            focusManager.clearFocus()
+                            tempInput = minutes.toString() // Keep the field showing the saved value
                         }
                     }
                 },
@@ -116,16 +117,14 @@ fun DashboardScreen(
                 Text("Set")
             }
 
-            if (showSavedMessage.value) {
+            if (showSavedMessage) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "We’ll gently remind you after ${notifyAfterMinutes} minutes.",
+                    text = "Saved! We’ll remind you every $savedValue minutes.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
-
-
 
             Spacer(modifier = Modifier.height(32.dp))
 
@@ -134,21 +133,22 @@ fun DashboardScreen(
                 text = "Today’s reflection",
                 style = MaterialTheme.typography.titleMedium
             )
-
             Spacer(modifier = Modifier.height(12.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-
                 StatCard(
                     title = "Time on Instagram",
-                    value = if (usageMinutes == 0) "—" else "$usageMinutes min",
+                    value = if (usageMinutesToday == 0L) "—" else {
+                        val hours = usageMinutesToday / 60
+                        val mins = usageMinutesToday % 60
+                        if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+                    },
                     icon = Icons.Default.Timer,
                     modifier = Modifier.weight(1f)
                 )
-
                 StatCard(
                     title = "Deep scroll moments",
                     value = deepScrollCount.toString(),
@@ -165,9 +165,7 @@ fun DashboardScreen(
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                 modifier = Modifier.align(Alignment.CenterHorizontally)
             )
-
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
-

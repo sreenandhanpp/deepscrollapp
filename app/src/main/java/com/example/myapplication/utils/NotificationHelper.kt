@@ -56,8 +56,7 @@ object NotificationHelper {
     ) {
         if (!hasPermission(context)) return
 
-        val manager =
-            context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         ensureChannel(manager)
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
@@ -70,5 +69,27 @@ object NotificationHelper {
             .build()
 
         manager.notify(System.currentTimeMillis().toInt(), notification)
+    }
+
+    /**
+     * New method for unconscious/rapid scrolling detection
+     * Uses the same channel and style, just different message
+     */
+    fun showUnconsciousScrollingNotification(context: Context) {
+        if (!hasPermission(context)) return
+
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        ensureChannel(manager)
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_logo_photoroom) // you can change to a different icon if you want
+            .setContentTitle("Whoa — you're scrolling super fast! ⚡")
+            .setContentText("Take a quick breath and slow down a bit?")
+            .setContentIntent(dashboardIntent(context))
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+
+        manager.notify(System.currentTimeMillis().toInt() + 1, notification) // +1 to avoid overwriting mindful notif
     }
 }

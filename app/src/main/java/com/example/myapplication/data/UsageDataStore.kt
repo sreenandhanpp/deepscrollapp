@@ -13,7 +13,7 @@ private val Context.usageDataStore by preferencesDataStore("usage_data")
 
 object UsageDataStore {
 
-    private val TOTAL_SCROLL_TIME_MS = longPreferencesKey("total_scroll_time_ms")
+    private val TOTAL_SCROLL_MINUTES = longPreferencesKey("total_scroll_minutes")
     private val DEEP_SCROLL_COUNT = intPreferencesKey("deep_scroll_count")
     private val LAST_UPDATED_DAY = intPreferencesKey("last_updated_day")
 
@@ -28,18 +28,23 @@ object UsageDataStore {
         context.usageDataStore.edit { prefs ->
             val savedDay = prefs[LAST_UPDATED_DAY]
             if (savedDay != today) {
-                prefs[TOTAL_SCROLL_TIME_MS] = 0L
+                prefs[TOTAL_SCROLL_MINUTES] = 0L
                 prefs[DEEP_SCROLL_COUNT] = 0
                 prefs[LAST_UPDATED_DAY] = today
             }
         }
     }
 
+    /**
+     * Add session time in **minutes** (rounded up or down as needed)
+     */
     suspend fun addSessionTime(context: Context, durationMs: Long) {
         resetIfNewDay(context)
         context.usageDataStore.edit { prefs ->
-            val current = prefs[TOTAL_SCROLL_TIME_MS] ?: 0L
-            prefs[TOTAL_SCROLL_TIME_MS] = current + durationMs
+            val currentMinutes = prefs[TOTAL_SCROLL_MINUTES] ?: 0L
+            // Convert ms → minutes (round to nearest minute)
+            val sessionMinutes = (durationMs / 60_000L).toLong()
+            prefs[TOTAL_SCROLL_MINUTES] = currentMinutes + sessionMinutes
         }
     }
 
@@ -51,8 +56,11 @@ object UsageDataStore {
         }
     }
 
-    fun totalTimeFlow(context: Context): Flow<Long> =
-        context.usageDataStore.data.map { it[TOTAL_SCROLL_TIME_MS] ?: 0L }
+    /**
+     * Flow of total scrolling time **in minutes** for today
+     */
+    fun totalTimeMinutesFlow(context: Context): Flow<Long> =
+        context.usageDataStore.data.map { it[TOTAL_SCROLL_MINUTES] ?: 0L }
 
     fun deepScrollCountFlow(context: Context): Flow<Int> =
         context.usageDataStore.data.map { it[DEEP_SCROLL_COUNT] ?: 0 }
