@@ -12,6 +12,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.example.myapplication.MainActivity
 import com.example.myapplication.R
+import com.example.myapplication.service.detector.UnconsciousType  // Import the enum from your service
 
 object NotificationHelper {
 
@@ -72,24 +73,65 @@ object NotificationHelper {
     }
 
     /**
-     * New method for unconscious/rapid scrolling detection
-     * Uses the same channel and style, just different message
+     * Updated method for unconscious scrolling detection
+     * Shows different messages based on the detected unconscious type
      */
-    fun showUnconsciousScrollingNotification(context: Context) {
+    fun showUnconsciousScrollingNotification(
+        context: Context,
+        type: UnconsciousType
+    ) {
         if (!hasPermission(context)) return
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         ensureChannel(manager)
 
+        // Customize title and message based on type
+        val (title, message) = when (type) {
+            UnconsciousType.RAPID_SWIPING -> {
+                "Fast scrolling moment ⚡" to
+                        "That was a lot of quick swipes in a row. Want to slow down for a second?"
+            }
+
+            UnconsciousType.ZONE_OUT -> {
+                "Just checking in 🌫️" to
+                        "You’ve been scrolling quietly for a bit. How are you feeling right now?"
+            }
+
+            UnconsciousType.ROBOTIC -> {
+                "Autopilot detected 🤖" to
+                        "Your scrolling looks a little repetitive. A small pause can help reset."
+            }
+
+            UnconsciousType.DEEP_DIVE -> {
+                "Deep scroll happening 🌀" to
+                        "You’ve been here for a while. No rush—just a gentle moment to notice."
+            }
+
+            UnconsciousType.MINDLESS_BROWSING -> {
+                "Mindless scroll moment 😶" to
+                        "It seems like scrolling without a clear goal. Want to take a breath?"
+            }
+        }
+
+
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_logo_photoroom) // you can change to a different icon if you want
-            .setContentTitle("Whoa — you're scrolling super fast! ⚡")
-            .setContentText("Take a quick breath and slow down a bit?")
+            .setSmallIcon(R.drawable.ic_stat_logo_photoroom)
+            .setContentTitle(title)
+            .setContentText(message)
             .setContentIntent(dashboardIntent(context))
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
 
-        manager.notify(System.currentTimeMillis().toInt() + 1, notification) // +1 to avoid overwriting mindful notif
+        // Use different notification ID based on type to avoid overwriting
+        val notificationId = when (type) {
+            UnconsciousType.RAPID_SWIPING -> 1001
+            UnconsciousType.ZONE_OUT -> 1002
+            UnconsciousType.ROBOTIC -> 1003
+            UnconsciousType.DEEP_DIVE -> 1004
+            UnconsciousType.MINDLESS_BROWSING -> 1005
+        }
+
+        manager.notify(notificationId, notification)
     }
 }

@@ -64,4 +64,5 @@ object UsageDataStore {
 
     fun deepScrollCountFlow(context: Context): Flow<Int> =
         context.usageDataStore.data.map { it[DEEP_SCROLL_COUNT] ?: 0 }
+
 }

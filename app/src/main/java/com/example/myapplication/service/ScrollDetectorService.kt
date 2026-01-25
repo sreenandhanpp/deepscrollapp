@@ -7,30 +7,40 @@ import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import com.example.myapplication.data.NotificationSettingsStore
 import com.example.myapplication.data.UsageDataStore
+import com.example.myapplication.service.detector.UnconsciousScrollingDetector
+import com.example.myapplication.service.detector.UnconsciousType
 import com.example.myapplication.utils.NotificationHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
+// ─────────────────────────────────────────────────────────────
+// Main Accessibility Service
+// ─────────────────────────────────────────────────────────────
 class ScrollDetectorService : AccessibilityService() {
 
     /* ================= SESSION ================= */
+
     private var sessionStartTime = 0L
-    private var lastEventTime = 0L           // Last time ANY Instagram event happened
+    private var lastEventTime = 0L
     private var accumulatedSessionTime = 0L
 
-    private val SESSION_RESET_MS = 20_000L
-    private val MIN_SESSION_MS = 2_000L
+    /** Tracks how much time we have ALREADY written to DataStore */
+    private var lastPersistedMs = 0L
+
+    private val SESSION_RESET_MS = 90_000L   // 1.5 min idle = new session
+    private val MIN_SESSION_MS = 2_000L      // ignore micro sessions
 
     /* ================= MINDFUL NOTIFICATION ================= */
+
     private var notifyAfterMinutes = 1
     private val NOTIFICATION_COOLDOWN_MS = 10_000L
     private var lastNotificationTime = 0L
-    private var lastNotifiedMinute = 0
-    private var wasDeepSession = false
+    private var nextNotifyMinute = 1
 
-    /* ================= RAPID SCROLLING DETECTION ================= */
+    /* ================= RAPID SCROLL (fallback) ================= */
+
     private var rapidScrollStreak = 0
     private var lastRapidScrollTime = 0L
 
@@ -39,76 +49,106 @@ class ScrollDetectorService : AccessibilityService() {
     private val UNCONSCIOUS_COOLDOWN_MS = 45_000L
     private var lastUnconsciousNotificationTime = 0L
 
-    /* ================= IDLE TIMEOUT ================= */
+    /* ================= IDLE HANDLER ================= */
+
     private val handler = Handler(Looper.getMainLooper())
     private var endSessionRunnable: Runnable? = null
 
+    /* ================= DETECTOR ================= */
+
+    private lateinit var unconsciousDetector: UnconsciousScrollingDetector
+
+    // ─────────────────────────────────────────────────────────────
+
     override fun onServiceConnected() {
         super.onServiceConnected()
+
+        unconsciousDetector = UnconsciousScrollingDetector(applicationContext)
 
         CoroutineScope(Dispatchers.IO).launch {
             NotificationSettingsStore
                 .notifyAfterMinutesFlow(applicationContext)
                 .collect {
                     notifyAfterMinutes = it.coerceAtLeast(1)
+                    nextNotifyMinute = notifyAfterMinutes
                 }
         }
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        val packageName = event.packageName?.toString() ?: return
+    // ─────────────────────────────────────────────────────────────
 
-        // Early exit if not Instagram → end session if leaving
-        if (packageName != "com.instagram.android") {
-            if (sessionStartTime != 0L) endSession()
+    override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        val pkg = event.packageName?.toString() ?: return
+
+        /* ---- Leave Instagram → end session ---- */
+        if (pkg != "com.instagram.android") {
+            endSession()
             return
         }
 
         val now = System.currentTimeMillis()
 
+        unconsciousDetector.updateLastEventTime(now)
+        unconsciousDetector.onAccessibilityEvent(event, now)
+
         val isScrollEvent = event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED
 
-        if (isScrollEvent) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                if (abs(event.scrollDeltaX) > abs(event.scrollDeltaY)) return
-                if (event.scrollDeltaY == 0 && event.maxScrollY == 0) return
-            }
+        /* ---- Filter fake / horizontal scrolls ---- */
+        if (isScrollEvent && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            if (abs(event.scrollDeltaX) > abs(event.scrollDeltaY)) return
+            if (event.scrollDeltaY == 0 && event.maxScrollY == 0) return
         }
 
-        // Reset if idle
+        /* ---- Idle reset ---- */
         if (lastEventTime != 0L && now - lastEventTime > SESSION_RESET_MS) {
             endSession()
         }
 
-        // Start session on first event
+        /* ---- Session start ---- */
         if (sessionStartTime == 0L) {
             sessionStartTime = now
             lastEventTime = now
-            lastNotifiedMinute = 0
+            accumulatedSessionTime = 0L
+            lastPersistedMs = 0L
+            nextNotifyMinute = notifyAfterMinutes
             rapidScrollStreak = 0
             lastRapidScrollTime = 0L
-            wasDeepSession = false
-        } else {
-            // Accumulate real elapsed time (works even without scrolls!)
-            val delta = now - lastEventTime
-            accumulatedSessionTime += delta
-            lastEventTime = now
+            return
+        }
 
-            // Rapid scroll detection ONLY on scroll events
-            if (isScrollEvent) {
-                val timeSinceLastScroll = now - lastRapidScrollTime
-                if (timeSinceLastScroll < RAPID_SCROLL_THRESHOLD_MS) {
-                    rapidScrollStreak++
-                } else {
-                    rapidScrollStreak = 1
-                }
-                lastRapidScrollTime = now
+        /* ---- Accumulate time ---- */
+        val delta = now - lastEventTime
+        accumulatedSessionTime += delta
+        lastEventTime = now
 
-                if (rapidScrollStreak >= RAPID_SCROLL_STREAK_LIMIT &&
-                    now - lastUnconsciousNotificationTime > UNCONSCIOUS_COOLDOWN_MS
-                ) {
-                    lastUnconsciousNotificationTime = now
-                    NotificationHelper.showUnconsciousScrollingNotification(applicationContext)
+        /* ---- Persist usage every 60s ---- */
+        val deltaSincePersist = accumulatedSessionTime - lastPersistedMs
+        if (deltaSincePersist >= 60_000L) {
+            CoroutineScope(Dispatchers.IO).launch {
+                UsageDataStore.addSessionTime(applicationContext, deltaSincePersist)
+            }
+            lastPersistedMs += deltaSincePersist
+        }
+
+        /* ---- Rapid swipe fallback ---- */
+        if (isScrollEvent) {
+            val sinceLast = now - lastRapidScrollTime
+            rapidScrollStreak =
+                if (sinceLast < RAPID_SCROLL_THRESHOLD_MS) rapidScrollStreak + 1 else 1
+            lastRapidScrollTime = now
+
+            if (
+                rapidScrollStreak >= RAPID_SCROLL_STREAK_LIMIT &&
+                now - lastUnconsciousNotificationTime > UNCONSCIOUS_COOLDOWN_MS
+            ) {
+                lastUnconsciousNotificationTime = now
+                NotificationHelper.showUnconsciousScrollingNotification(
+                    applicationContext,
+                    UnconsciousType.RAPID_SWIPING
+                )
+
+                CoroutineScope(Dispatchers.IO).launch {
+                    UsageDataStore.incrementDeepScroll(applicationContext)
                 }
             }
         }
@@ -118,18 +158,15 @@ class ScrollDetectorService : AccessibilityService() {
             return
         }
 
-        // Mindful notification
+        /* ---- Time-based mindful notification ---- */
         val currentMinutes = (accumulatedSessionTime / 60_000L).toInt()
 
         if (
-            currentMinutes >= notifyAfterMinutes &&
-            currentMinutes % notifyAfterMinutes == 0 &&
-            currentMinutes != lastNotifiedMinute &&
+            currentMinutes >= nextNotifyMinute &&
             now - lastNotificationTime > NOTIFICATION_COOLDOWN_MS
         ) {
-            lastNotifiedMinute = currentMinutes
             lastNotificationTime = now
-            wasDeepSession = true
+            nextNotifyMinute += notifyAfterMinutes
 
             NotificationHelper.showMindfulNotification(
                 applicationContext,
@@ -140,6 +177,8 @@ class ScrollDetectorService : AccessibilityService() {
         scheduleSessionTimeout()
     }
 
+    // ─────────────────────────────────────────────────────────────
+
     private fun scheduleSessionTimeout() {
         endSessionRunnable?.let { handler.removeCallbacks(it) }
         endSessionRunnable = Runnable { endSession() }
@@ -149,33 +188,29 @@ class ScrollDetectorService : AccessibilityService() {
     private fun endSession() {
         if (sessionStartTime == 0L) return
 
-        if (accumulatedSessionTime >= MIN_SESSION_MS) {
+        val remaining = accumulatedSessionTime - lastPersistedMs
+        if (remaining >= 60_000L) {
             CoroutineScope(Dispatchers.IO).launch {
-                // Save time in milliseconds (UsageDataStore converts to minutes)
-                UsageDataStore.addSessionTime(applicationContext, accumulatedSessionTime)
-
-                if (wasDeepSession) {
-                    UsageDataStore.incrementDeepScroll(applicationContext)
-                }
+                UsageDataStore.addSessionTime(applicationContext, remaining)
             }
         }
 
-        // Reset all
+        unconsciousDetector.resetSession()
+
         sessionStartTime = 0L
         lastEventTime = 0L
         accumulatedSessionTime = 0L
-        lastNotifiedMinute = 0
-        lastNotificationTime = 0L
+        lastPersistedMs = 0L
         rapidScrollStreak = 0
         lastRapidScrollTime = 0L
         lastUnconsciousNotificationTime = 0L
-        wasDeepSession = false
 
         endSessionRunnable?.let { handler.removeCallbacks(it) }
         endSessionRunnable = null
     }
 
     override fun onInterrupt() = endSession()
+
     override fun onDestroy() {
         endSession()
         super.onDestroy()
