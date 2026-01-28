@@ -22,6 +22,8 @@ class ScrollDetectorService : AccessibilityService() {
 
     /* ================= SESSION ================= */
 
+    private var deepScrollRecordedThisSession = false
+
     private var sessionStartTime = 0L
     private var lastEventTime = 0L
     private var accumulatedSessionTime = 0L
@@ -91,6 +93,17 @@ class ScrollDetectorService : AccessibilityService() {
         unconsciousDetector.updateLastEventTime(now)
         unconsciousDetector.onAccessibilityEvent(event, now)
 
+        // ✅ FIXED: use detector API instead of missing function
+        if (
+            unconsciousDetector.hasDetectedUnconsciousScrolling() &&
+            !deepScrollRecordedThisSession
+        ) {
+            deepScrollRecordedThisSession = true
+            CoroutineScope(Dispatchers.IO).launch {
+                UsageDataStore.incrementDeepScroll(applicationContext)
+            }
+        }
+
         val isScrollEvent = event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED
 
         /* ---- Filter fake / horizontal scrolls ---- */
@@ -130,7 +143,7 @@ class ScrollDetectorService : AccessibilityService() {
             lastPersistedMs += deltaSincePersist
         }
 
-        /* ---- Rapid swipe fallback ---- */
+        /* ---- Rapid swipe fallback (NO counting) ---- */
         if (isScrollEvent) {
             val sinceLast = now - lastRapidScrollTime
             rapidScrollStreak =
@@ -138,6 +151,7 @@ class ScrollDetectorService : AccessibilityService() {
             lastRapidScrollTime = now
 
             if (
+                accumulatedSessionTime >= 2 * 60_000L && // ⏳ wait 2 minutes
                 rapidScrollStreak >= RAPID_SCROLL_STREAK_LIMIT &&
                 now - lastUnconsciousNotificationTime > UNCONSCIOUS_COOLDOWN_MS
             ) {
@@ -146,10 +160,6 @@ class ScrollDetectorService : AccessibilityService() {
                     applicationContext,
                     UnconsciousType.RAPID_SWIPING
                 )
-
-                CoroutineScope(Dispatchers.IO).launch {
-                    UsageDataStore.incrementDeepScroll(applicationContext)
-                }
             }
         }
 
@@ -196,6 +206,7 @@ class ScrollDetectorService : AccessibilityService() {
         }
 
         unconsciousDetector.resetSession()
+        deepScrollRecordedThisSession = false
 
         sessionStartTime = 0L
         lastEventTime = 0L

@@ -14,11 +14,20 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.material.icons.filled.Notifications
+
 
 @Composable
 fun DashboardScreen(
-    viewModel: MainViewModel
-) {
+    viewModel: MainViewModel,
+    onOpenNotificationSettings: () -> Unit,
+    onShowUpgrade: () -> Unit
+)
+{
+    LaunchedEffect(Unit) {
+        onShowUpgrade()
+    }
+
     val usageMinutesToday by viewModel.totalUsageMinutesToday.collectAsState()
     val deepScrollCount by viewModel.deepScrollCount.collectAsState()
     val notifyAfterMinutes by viewModel.notifyAfterMinutes.collectAsState()
@@ -42,10 +51,28 @@ fun DashboardScreen(
                 .padding(20.dp)
         ) {
             Spacer(modifier = Modifier.height(24.dp))
-            Text(
-                text = "Hello 👋",
-                style = MaterialTheme.typography.headlineMedium
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Hello 👋",
+                    style = MaterialTheme.typography.headlineMedium
+                )
+
+                IconButton(
+                    onClick = {
+                        onOpenNotificationSettings()
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Notifications,
+                        contentDescription = "Notification settings"
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
 
             // 🌿 Unscroll card

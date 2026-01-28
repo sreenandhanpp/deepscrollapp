@@ -8,12 +8,12 @@ import kotlin.math.abs
 import kotlin.math.log2
 import java.util.Calendar
 
-// ─────────────────────────────────────────────────────────────
-// Advanced Unconscious Scrolling Detector
-// ─────────────────────────────────────────────────────────────
 class UnconsciousScrollingDetector(
     private val context: Context
 ) {
+
+    private var lastDetectedType: UnconsciousType? = null
+
 
     /* ---------------- Input analysis ---------------- */
 
@@ -38,6 +38,15 @@ class UnconsciousScrollingDetector(
     private val PAUSE_THRESHOLD_MS = 3_000L
     private val INTERACTION_WINDOW_MS = 10_000L
     private val UNCONSCIOUS_THRESHOLD = 0.75f
+
+    /* ---------------- NEW SAFETY GUARDS ---------------- */
+
+    private val WARMUP_TIME_MS = 60_000L
+    private val MIN_SCROLL_EVENTS = 8
+    private val MIN_UNCONSCIOUS_DURATION_MS = 20_000L
+
+
+    private var unconsciousStartTime = 0L
 
     /* ---------------- Notification safety ---------------- */
 
@@ -76,6 +85,9 @@ class UnconsciousScrollingDetector(
             lastInteractionTime = now
             recentGestures.add(GestureType.INTERACTION)
             contentConsumptionTime += timeDelta
+
+            // Reset unconscious candidate if user interacts
+            unconsciousStartTime = 0L
         }
 
         /* ---- Scroll ---- */
@@ -97,17 +109,50 @@ class UnconsciousScrollingDetector(
             )
         }
 
-        /* ---- Detection ---- */
-        val result = detectUnconsciousScrolling(now) ?: return
+        /* ======================================================
+           🛑 EARLY EXIT: Warm-up / Intent phase
+           ====================================================== */
 
-        // 🔒 Cooldown + once-per-session protection
+        if (
+            totalSessionTime < WARMUP_TIME_MS ||
+            scrollHistory.size < MIN_SCROLL_EVENTS
+        ) return
+
+
+        /* ---- Detection ---- */
+        val result = detectUnconsciousScrolling(now) ?: run {
+            unconsciousStartTime = 0L
+            return
+        }
+        if (
+            result.type == UnconsciousType.RAPID_SWIPING &&
+            totalSessionTime < 2 * WARMUP_TIME_MS
+        ) {
+            return
+        }
+
+        /* ---- Sustained unconscious check ---- */
+        if (unconsciousStartTime == 0L) {
+            unconsciousStartTime = now
+            return
+        }
+
+        if (now - unconsciousStartTime < MIN_UNCONSCIOUS_DURATION_MS) return
+
+        /* ---- Cooldown + once-per-session ---- */
         if (
             unconsciousTriggeredThisSession ||
             now - lastUnconsciousNotificationTime < UNCONSCIOUS_COOLDOWN_MS
         ) return
 
-        unconsciousTriggeredThisSession = true
+
+
+        if (result.type != UnconsciousType.RAPID_SWIPING) {
+            unconsciousTriggeredThisSession = true
+        }
         lastUnconsciousNotificationTime = now
+        lastDetectedType = result.type
+
 
         NotificationHelper.showUnconsciousScrollingNotification(
             context,
@@ -116,7 +161,7 @@ class UnconsciousScrollingDetector(
     }
 
     /* ==========================================================
-       RESET (REQUIRED BY SERVICE)
+       RESET (called by service)
        ========================================================== */
 
     fun resetSession() {
@@ -132,11 +177,14 @@ class UnconsciousScrollingDetector(
         naturalBreakCount = 0
 
         lastEventTime = 0L
+        unconsciousStartTime = 0L
         unconsciousTriggeredThisSession = false
+        lastDetectedType = null   // ✅ ADD THIS
+
     }
 
     /* ==========================================================
-       Detection logic (UNCHANGED in behavior)
+       Detection logic (UNCHANGED)
        ========================================================== */
 
     private fun classifyGesture(
@@ -240,21 +288,37 @@ class UnconsciousScrollingDetector(
 
     private fun detectUnconsciousType(now: Long): UnconsciousType =
         when {
-            recentGestures.count { it == GestureType.QUICK_SWIPE } >= 3 ->
-                UnconsciousType.RAPID_SWIPING
-            now - lastInteractionTime > 30_000L ->
-                UnconsciousType.ZONE_OUT
-            calculateGestureEntropy() < 0.2f ->
-                UnconsciousType.ROBOTIC
+            // 🧠 Deep, sustained scrolling first
             totalSessionTime > 60_000L && naturalBreakCount == 0 ->
                 UnconsciousType.DEEP_DIVE
+
+            // 💤 Zone-out (no interaction)
+            now - lastInteractionTime > 30_000L ->
+                UnconsciousType.ZONE_OUT
+
+            // 🤖 Pattern entropy collapse
+            calculateGestureEntropy() < 0.2f ->
+                UnconsciousType.ROBOTIC
+
+            // ⚡ Rapid swipe LAST (least severe)
+            recentGestures.count { it == GestureType.QUICK_SWIPE } >= 3 ->
+                UnconsciousType.RAPID_SWIPING
+
             else ->
                 UnconsciousType.MINDLESS_BROWSING
         }
+
 
     private fun isMeaningfulInteraction(event: AccessibilityEvent): Boolean =
         event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED ||
                 event.eventType == AccessibilityEvent.TYPE_VIEW_LONG_CLICKED ||
                 event.eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED ||
                 event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
+
+    fun hasDetectedUnconsciousScrolling(): Boolean {
+        // ❌ Exclude rapid swiping from deep scroll definition
+        return unconsciousTriggeredThisSession &&
+                lastDetectedType != UnconsciousType.RAPID_SWIPING
+    }
+
 }

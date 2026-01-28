@@ -14,7 +14,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.myapplication.ui.dashboard.DashboardScreen
 import com.example.myapplication.ui.dashboard.MainViewModel
+import com.example.myapplication.ui.notifications.NotificationSettingsScreen
 import com.example.myapplication.ui.onboarding.OnboardingHost
+import com.example.myapplication.ui.onboarding.UpgradeScreen
 import com.example.myapplication.ui.theme.AuraTheme
 
 class MainActivity : ComponentActivity() {
@@ -28,28 +30,62 @@ class MainActivity : ComponentActivity() {
             AuraTheme {
                 val mainViewModel: MainViewModel = viewModel()
 
-                // 🔹 Observe onboarding state
                 val onboardingCompleted =
                     mainViewModel.onboardingCompleted.collectAsState().value
 
+                val showNotificationSettings =
+                    mainViewModel.showNotificationSettings.collectAsState().value
+
+                val showUpgrade =
+                    mainViewModel.showUpgrade.collectAsState().value
+
                 Surface {
-                    if (onboardingCompleted) {
+                    when {
+                        // 🧭 Onboarding
+                        !onboardingCompleted -> {
+                            OnboardingHost(
+                                onFinish = {
+                                    mainViewModel.completeOnboarding()
+                                }
+                            )
+                        }
 
-                        // ✅ Ask notification permission AFTER onboarding
-                        requestNotificationPermission()
+                        // 🌱 Upgrade screen (shown once)
+                        showUpgrade -> {
+                            UpgradeScreen(
+                                onStartTrial = {
+                                    mainViewModel.closeUpgrade()
+                                },
+                                onContinueFree = {
+                                    mainViewModel.closeUpgrade()
+                                }
+                            )
+                        }
 
-                        DashboardScreen(
-                            viewModel = mainViewModel
-                        )
+                        // 🔔 Notification Settings
+                        showNotificationSettings -> {
+                            NotificationSettingsScreen(
+                                viewModel = mainViewModel,
+                                onBack = {
+                                    mainViewModel.closeNotificationSettings()
+                                }
+                            )
+                        }
 
-                    } else {
+                        // 🏠 Dashboard
+                        else -> {
+                            requestNotificationPermission()
 
-                        // 🧭 Show onboarding flow
-                        OnboardingHost(
-                            onFinish = {
-                                mainViewModel.completeOnboarding()
-                            }
-                        )
+                            DashboardScreen(
+                                viewModel = mainViewModel,
+                                onOpenNotificationSettings = {
+                                    mainViewModel.openNotificationSettings()
+                                },
+                                onShowUpgrade = {
+                                    mainViewModel.showUpgradeOnce()
+                                }
+                            )
+                        }
                     }
                 }
             }
