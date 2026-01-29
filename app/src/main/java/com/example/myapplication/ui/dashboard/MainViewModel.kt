@@ -16,17 +16,38 @@ class MainViewModel(
 ) : AndroidViewModel(application) {
 
     /* ---------------- Onboarding ---------------- */
+    val upgradeSeen =
+        UpgradeStore
+            .upgradeSeenFlow(application)
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5_000),
+                initialValue = false
+            )
 
     private val _showUpgrade = MutableStateFlow(false)
     val showUpgrade = _showUpgrade.asStateFlow()
 
+    private var upgradeShownInMemory = false
+
     fun showUpgradeOnce() {
-        _showUpgrade.value = true
+        if (!upgradeShownInMemory) {
+            upgradeShownInMemory = true
+            _showUpgrade.value = true
+        }
     }
+
 
     fun closeUpgrade() {
         _showUpgrade.value = false
+
+        viewModelScope.launch {
+            UpgradeStore.markUpgradeSeen(getApplication())
+        }
     }
+
+
+
 
     val onboardingCompleted =
         OnboardingStore

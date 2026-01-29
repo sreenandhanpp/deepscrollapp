@@ -21,12 +21,9 @@ import androidx.compose.material.icons.filled.Notifications
 fun DashboardScreen(
     viewModel: MainViewModel,
     onOpenNotificationSettings: () -> Unit,
-    onShowUpgrade: () -> Unit
 )
 {
-    LaunchedEffect(Unit) {
-        onShowUpgrade()
-    }
+
 
     val usageMinutesToday by viewModel.totalUsageMinutesToday.collectAsState()
     val deepScrollCount by viewModel.deepScrollCount.collectAsState()

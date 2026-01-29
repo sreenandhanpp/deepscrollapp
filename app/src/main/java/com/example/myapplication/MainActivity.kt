@@ -42,25 +42,18 @@ class MainActivity : ComponentActivity() {
                 Surface {
                     when {
                         // 🧭 Onboarding
+                        // 🧭 Onboarding
                         !onboardingCompleted -> {
                             OnboardingHost(
                                 onFinish = {
                                     mainViewModel.completeOnboarding()
+                                    mainViewModel.showUpgradeOnce() // ✅ ONLY PLACE
                                 }
                             )
                         }
 
-                        // 🌱 Upgrade screen (shown once)
-                        showUpgrade -> {
-                            UpgradeScreen(
-                                onStartTrial = {
-                                    mainViewModel.closeUpgrade()
-                                },
-                                onContinueFree = {
-                                    mainViewModel.closeUpgrade()
-                                }
-                            )
-                        }
+
+
 
                         // 🔔 Notification Settings
                         showNotificationSettings -> {
@@ -80,9 +73,6 @@ class MainActivity : ComponentActivity() {
                                 viewModel = mainViewModel,
                                 onOpenNotificationSettings = {
                                     mainViewModel.openNotificationSettings()
-                                },
-                                onShowUpgrade = {
-                                    mainViewModel.showUpgradeOnce()
                                 }
                             )
                         }
