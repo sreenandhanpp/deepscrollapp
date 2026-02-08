@@ -18,6 +18,43 @@ import kotlin.math.abs
 // ─────────────────────────────────────────────────────────────
 // Main Accessibility Service
 // ─────────────────────────────────────────────────────────────
+object ReelsDebugLogger {
+
+    private const val TAG = "Unscroll-Reels"
+
+    fun log(event: AccessibilityEvent) {
+        val src = event.source
+
+        val eventClass = event.className?.toString() ?: "null"
+        val sourceClass = src?.className?.toString() ?: "null"
+
+        val scrollY =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
+                event.scrollDeltaY else 0
+
+        val scrollX =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
+                event.scrollDeltaX else 0
+
+        val scrollable = src?.isScrollable ?: false
+        val childCount = src?.childCount ?: -1
+
+        android.util.Log.d(
+            TAG,
+            """
+            ── AccessibilityEvent ──
+            eventType=${event.eventType}
+            eventClass=$eventClass
+            sourceClass=$sourceClass
+            scrollable=$scrollable
+            deltaY=$scrollY deltaX=$scrollX
+            childCount=$childCount
+            ------------------------
+            """.trimIndent()
+        )
+    }
+}
+
 class ScrollDetectorService : AccessibilityService() {
 
     /* ================= SESSION ================= */
@@ -88,10 +125,18 @@ class ScrollDetectorService : AccessibilityService() {
             return
         }
 
+
         val now = System.currentTimeMillis()
 
-        unconsciousDetector.updateLastEventTime(now)
-        unconsciousDetector.onAccessibilityEvent(event, now)
+
+
+            // 🔍 DEBUG: log Instagram class names & scroll data
+            ReelsDebugLogger.log(event)
+
+            unconsciousDetector.updateLastEventTime(now)
+            unconsciousDetector.onAccessibilityEvent(event, now)
+
+
 
         // ✅ FIXED: use detector API instead of missing function
         if (
