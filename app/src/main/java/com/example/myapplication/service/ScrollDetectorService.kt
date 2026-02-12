@@ -4,9 +4,11 @@ import android.accessibilityservice.AccessibilityService
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import com.example.myapplication.data.NotificationSettingsStore
 import com.example.myapplication.data.UsageDataStore
+import com.example.myapplication.service.detector.ReelsDebugLogger
 import com.example.myapplication.service.detector.UnconsciousScrollingDetector
 import com.example.myapplication.service.detector.UnconsciousType
 import com.example.myapplication.utils.NotificationHelper
@@ -18,42 +20,6 @@ import kotlin.math.abs
 // ─────────────────────────────────────────────────────────────
 // Main Accessibility Service
 // ─────────────────────────────────────────────────────────────
-object ReelsDebugLogger {
-
-    private const val TAG = "Unscroll-Reels"
-
-    fun log(event: AccessibilityEvent) {
-        val src = event.source
-
-        val eventClass = event.className?.toString() ?: "null"
-        val sourceClass = src?.className?.toString() ?: "null"
-
-        val scrollY =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
-                event.scrollDeltaY else 0
-
-        val scrollX =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
-                event.scrollDeltaX else 0
-
-        val scrollable = src?.isScrollable ?: false
-        val childCount = src?.childCount ?: -1
-
-        android.util.Log.d(
-            TAG,
-            """
-            ── AccessibilityEvent ──
-            eventType=${event.eventType}
-            eventClass=$eventClass
-            sourceClass=$sourceClass
-            scrollable=$scrollable
-            deltaY=$scrollY deltaX=$scrollX
-            childCount=$childCount
-            ------------------------
-            """.trimIndent()
-        )
-    }
-}
 
 class ScrollDetectorService : AccessibilityService() {
 
@@ -117,6 +83,8 @@ class ScrollDetectorService : AccessibilityService() {
     // ─────────────────────────────────────────────────────────────
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        Log.d("TEST_LOG", "Event triggered")
+
         val pkg = event.packageName?.toString() ?: return
 
         /* ---- Leave Instagram → end session ---- */
@@ -131,7 +99,7 @@ class ScrollDetectorService : AccessibilityService() {
 
 
             // 🔍 DEBUG: log Instagram class names & scroll data
-            ReelsDebugLogger.log(event)
+        ReelsDebugLogger.log(event)
 
             unconsciousDetector.updateLastEventTime(now)
             unconsciousDetector.onAccessibilityEvent(event, now)
