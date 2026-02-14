@@ -24,6 +24,16 @@ import kotlin.math.abs
 class ScrollDetectorService : AccessibilityService() {
 
     /* ================= SESSION ================= */
+    private fun isReelsScroll(event: AccessibilityEvent): Boolean {
+        if (event.eventType != AccessibilityEvent.TYPE_VIEW_SCROLLED) return false
+
+        val pkg = event.packageName?.toString() ?: return false
+        val className = event.className?.toString() ?: return false
+
+        return pkg == "com.instagram.android" &&
+                className == "androidx.viewpager.widget.ViewPager"
+    }
+
 
     private var deepScrollRecordedThisSession = false
 
@@ -99,10 +109,16 @@ class ScrollDetectorService : AccessibilityService() {
 
 
             // 🔍 DEBUG: log Instagram class names & scroll data
-        ReelsDebugLogger.log(event)
+        val isScrollEvent =
+            event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED
+
+        if (isReelsScroll(event)) {
 
             unconsciousDetector.updateLastEventTime(now)
             unconsciousDetector.onAccessibilityEvent(event, now)
+        }
+
+
 
 
 
@@ -117,7 +133,6 @@ class ScrollDetectorService : AccessibilityService() {
             }
         }
 
-        val isScrollEvent = event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED
 
         /* ---- Filter fake / horizontal scrolls ---- */
         if (isScrollEvent && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
