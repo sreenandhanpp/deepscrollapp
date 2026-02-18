@@ -22,7 +22,7 @@ object ReelsDebugLogger {
         val deltaY = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) event.scrollDeltaY else 0
         val maxY = event.maxScrollY
 
-        Log.d(TAG, """
+        Log.d(TAG, """ 
             📦 Package: $pkg
             🏷 Class: $className
             🔄 deltaY: $deltaY

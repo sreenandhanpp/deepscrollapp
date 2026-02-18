@@ -25,14 +25,39 @@ class ScrollDetectorService : AccessibilityService() {
 
     /* ================= SESSION ================= */
     private fun isReelsScroll(event: AccessibilityEvent): Boolean {
-        if (event.eventType != AccessibilityEvent.TYPE_VIEW_SCROLLED) return false
 
-        val pkg = event.packageName?.toString() ?: return false
-        val className = event.className?.toString() ?: return false
+        if (event.eventType != AccessibilityEvent.TYPE_VIEW_SCROLLED) {
+            return false
+        }
 
-        return pkg == "com.instagram.android" &&
-                className == "androidx.viewpager.widget.ViewPager"
+        val pkg = event.packageName?.toString() ?: "null"
+        val className = event.className?.toString() ?: "null"
+
+
+        if (pkg != "com.instagram.android") {
+            return false
+        }
+
+        if (className != "androidx.viewpager.widget.ViewPager") {
+            return false
+        }
+
+        val deltaY =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
+                event.scrollDeltaY
+            else 0
+
+        val maxY = event.maxScrollY
+
+        Log.d("ReelsCheck", """
+        ✅ REELS SCROLL DETECTED
+        🔄 deltaY: $deltaY
+        📏 maxScrollY: $maxY
+    """.trimIndent())
+
+        return true
     }
+
 
 
     private var deepScrollRecordedThisSession = false
@@ -44,7 +69,7 @@ class ScrollDetectorService : AccessibilityService() {
     /** Tracks how much time we have ALREADY written to DataStore */
     private var lastPersistedMs = 0L
 
-    private val SESSION_RESET_MS = 90_000L   // 1.5 min idle = new session
+    private val SESSION_RESET_MS = 5 * 60_000L
     private val MIN_SESSION_MS = 2_000L      // ignore micro sessions
 
     /* ================= MINDFUL NOTIFICATION ================= */
@@ -65,6 +90,22 @@ class ScrollDetectorService : AccessibilityService() {
     private var lastUnconsciousNotificationTime = 0L
 
     /* ================= IDLE HANDLER ================= */
+
+    /* ================= TICKING TIMER ================= */
+
+    private var ticking = false
+
+    private val tickingRunnable = object : Runnable {
+        override fun run() {
+            if (!ticking) return
+
+            accumulatedSessionTime += 1000L
+
+            checkMindfulNotification()
+
+            handler.postDelayed(this, 1000L)
+        }
+    }
 
     private val handler = Handler(Looper.getMainLooper())
     private var endSessionRunnable: Runnable? = null
@@ -93,7 +134,6 @@ class ScrollDetectorService : AccessibilityService() {
     // ─────────────────────────────────────────────────────────────
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        Log.d("TEST_LOG", "Event triggered")
 
         val pkg = event.packageName?.toString() ?: return
 
@@ -107,13 +147,12 @@ class ScrollDetectorService : AccessibilityService() {
         val now = System.currentTimeMillis()
 
 
-
+//        ReelsDebugLogger.log(event)
             // 🔍 DEBUG: log Instagram class names & scroll data
         val isScrollEvent =
             event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED
 
         if (isReelsScroll(event)) {
-
             unconsciousDetector.updateLastEventTime(now)
             unconsciousDetector.onAccessibilityEvent(event, now)
         }
@@ -154,8 +193,12 @@ class ScrollDetectorService : AccessibilityService() {
             nextNotifyMinute = notifyAfterMinutes
             rapidScrollStreak = 0
             lastRapidScrollTime = 0L
+
+            startTicking()   // ✅ ADD THIS LINE
+
             return
         }
+
 
         /* ---- Accumulate time ---- */
         val delta = now - lastEventTime
@@ -223,8 +266,34 @@ class ScrollDetectorService : AccessibilityService() {
         handler.postDelayed(endSessionRunnable!!, SESSION_RESET_MS)
     }
 
+    private fun startTicking() {
+        if (ticking) return
+        ticking = true
+        handler.post(tickingRunnable)
+    }
+    private fun checkMindfulNotification() {
+        val currentMinutes = (accumulatedSessionTime / 60_000L).toInt()
+        val now = System.currentTimeMillis()
+
+        if (
+            currentMinutes >= nextNotifyMinute &&
+            now - lastNotificationTime > NOTIFICATION_COOLDOWN_MS
+        ) {
+            lastNotificationTime = now
+            nextNotifyMinute += notifyAfterMinutes
+
+            NotificationHelper.showMindfulNotification(
+                applicationContext,
+                currentMinutes
+            )
+        }
+    }
+
+
     private fun endSession() {
         if (sessionStartTime == 0L) return
+        ticking = false
+        handler.removeCallbacks(tickingRunnable)
 
         val remaining = accumulatedSessionTime - lastPersistedMs
         if (remaining >= 60_000L) {
