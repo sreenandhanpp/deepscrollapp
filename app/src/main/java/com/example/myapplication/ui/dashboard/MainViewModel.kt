@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.myapplication.data.*
+import com.example.myapplication.data.analytics.ScrollDailyStats
+import com.example.myapplication.data.analytics.UsageRepository
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -11,13 +13,61 @@ class MainViewModel(
     application: Application
 ) : AndroidViewModel(application) {
 
-    /* ---------------- Onboarding & Upgrade ---------------- */
+    private val repository = UsageRepository(application)
+
+    /* ---------------- MONTH + YEAR ANALYTICS ---------------- */
+
+    private val _monthStats = MutableStateFlow<List<ScrollDailyStats>>(emptyList())
+    val monthStats: StateFlow<List<ScrollDailyStats>> = _monthStats
+
+    private val _yearStats = MutableStateFlow<List<ScrollDailyStats>>(emptyList())
+    val yearStats: StateFlow<List<ScrollDailyStats>> = _yearStats
+
+    fun loadMonthStats() {
+        viewModelScope.launch {
+            _monthStats.value = repository.getCurrentMonthStats()
+        }
+    }
+
+    fun loadYearStats() {
+        viewModelScope.launch {
+            _yearStats.value = repository.getLastYearStats()
+        }
+    }
+
+    /* ---------------- TODAY ANALYTICS (ROOM) ---------------- */
+
+    val todayStats: StateFlow<ScrollDailyStats?> =
+        repository.observeTodayStats()
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = null
+            )
+
+    /* ---------------- ONBOARDING ---------------- */
+
+    val onboardingCompleted = OnboardingStore
+        .onboardingCompletedFlow(application)
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = false
+        )
+
+    fun completeOnboarding() {
+        viewModelScope.launch {
+            OnboardingStore.setOnboardingCompleted(getApplication())
+        }
+    }
+
+    /* ---------------- UPGRADE SYSTEM ---------------- */
 
     val upgradeSeen = UpgradeStore
         .upgradeSeenFlow(application)
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
+            started = SharingStarted.WhileSubscribed(5000),
             initialValue = false
         )
 
@@ -40,27 +90,13 @@ class MainViewModel(
         }
     }
 
-    val onboardingCompleted = OnboardingStore
-        .onboardingCompletedFlow(application)
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = false
-        )
-
-    fun completeOnboarding() {
-        viewModelScope.launch {
-            OnboardingStore.setOnboardingCompleted(getApplication())
-        }
-    }
-
-    /* ---------------- Usage Stats ---------------- */
+    /* ---------------- USAGE STATS ---------------- */
 
     val totalUsageMinutesToday = UsageDataStore
         .totalTimeMinutesFlow(application)
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
+            started = SharingStarted.WhileSubscribed(5000),
             initialValue = 0L
         )
 
@@ -68,62 +104,61 @@ class MainViewModel(
         .deepScrollCountFlow(application)
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
+            started = SharingStarted.WhileSubscribed(5000),
             initialValue = 0
         )
 
-    /* ---------------- Reel Reminder Preference ---------------- */
+    /* ---------------- REEL REMINDER ---------------- */
 
     val notifyAfterReels = NotificationSettingsStore
         .notifyAfterReelsFlow(application)
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
+            started = SharingStarted.WhileSubscribed(5000),
             initialValue = 10
         )
 
     fun updateNotifyAfterReels(reels: Int) {
         viewModelScope.launch {
-            NotificationSettingsStore.setNotifyAfterReels(getApplication(), reels)
+            NotificationSettingsStore.setNotifyAfterReels(
+                getApplication(),
+                reels
+            )
         }
     }
 
-    /* ---------------- Notification Toggles (now persisted) ---------------- */
+    /* ---------------- NOTIFICATION TOGGLES ---------------- */
 
     private val _timeReminderEnabled = MutableStateFlow(true)
-    val timeReminderEnabled: StateFlow<Boolean> = _timeReminderEnabled.asStateFlow()
+    val timeReminderEnabled = _timeReminderEnabled.asStateFlow()
 
     private val _rapidSwipeEnabled = MutableStateFlow(true)
-    val rapidSwipeEnabled: StateFlow<Boolean> = _rapidSwipeEnabled.asStateFlow()
+    val rapidSwipeEnabled = _rapidSwipeEnabled.asStateFlow()
 
     private val _zoneOutEnabled = MutableStateFlow(true)
-    val zoneOutEnabled: StateFlow<Boolean> = _zoneOutEnabled.asStateFlow()
+    val zoneOutEnabled = _zoneOutEnabled.asStateFlow()
 
     private val _roboticEnabled = MutableStateFlow(true)
-    val roboticEnabled: StateFlow<Boolean> = _roboticEnabled.asStateFlow()
+    val roboticEnabled = _roboticEnabled.asStateFlow()
 
     private val _deepDiveEnabled = MutableStateFlow(true)
-    val deepDiveEnabled: StateFlow<Boolean> = _deepDiveEnabled.asStateFlow()
+    val deepDiveEnabled = _deepDiveEnabled.asStateFlow()
 
     private val _mindlessEnabled = MutableStateFlow(true)
-    val mindlessEnabled: StateFlow<Boolean> = _mindlessEnabled.asStateFlow()
+    val mindlessEnabled = _mindlessEnabled.asStateFlow()
 
     init {
-        // Load persisted toggle states once on creation
         viewModelScope.launch {
             loadNotificationToggles()
         }
+
+        loadYearStats()
+        loadMonthStats()
     }
 
     private suspend fun loadNotificationToggles() {
-        val app = getApplication<Application>()
 
-        // You can later create a NotificationToggleStore with keys like:
-        // time_reminder_enabled, rapid_swipe_enabled, etc.
-
-        // For now – assuming defaults or reading from somewhere
-        // Replace with real persistence when you add the keys
-        _timeReminderEnabled.value = true    // ← replace with real read
+        _timeReminderEnabled.value = true
         _rapidSwipeEnabled.value = true
         _zoneOutEnabled.value = true
         _roboticEnabled.value = true
@@ -133,35 +168,29 @@ class MainViewModel(
 
     fun setTimeReminderEnabled(enabled: Boolean) {
         _timeReminderEnabled.value = enabled
-        // TODO: save to DataStore when you add persistence
     }
 
     fun setRapidSwipeEnabled(enabled: Boolean) {
         _rapidSwipeEnabled.value = enabled
-        // TODO: save
     }
 
     fun setZoneOutEnabled(enabled: Boolean) {
         _zoneOutEnabled.value = enabled
-        // TODO: save
     }
 
     fun setRoboticEnabled(enabled: Boolean) {
         _roboticEnabled.value = enabled
-        // TODO: save
     }
 
     fun setDeepDiveEnabled(enabled: Boolean) {
         _deepDiveEnabled.value = enabled
-        // TODO: save
     }
 
     fun setMindlessEnabled(enabled: Boolean) {
         _mindlessEnabled.value = enabled
-        // TODO: save
     }
 
-    /* ---------------- Notification Settings Screen ---------------- */
+    /* ---------------- NOTIFICATION SETTINGS SCREEN ---------------- */
 
     private val _showNotificationSettings = MutableStateFlow(false)
     val showNotificationSettings = _showNotificationSettings.asStateFlow()

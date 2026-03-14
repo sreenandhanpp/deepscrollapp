@@ -8,6 +8,7 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import com.example.myapplication.data.NotificationSettingsStore
 import com.example.myapplication.data.UsageDataStore
+import com.example.myapplication.data.analytics.UsageRepository
 import com.example.myapplication.service.detector.UnconsciousScrollingDetector
 import com.example.myapplication.service.detector.UnconsciousType
 import com.example.myapplication.utils.NotificationHelper
@@ -20,6 +21,8 @@ class ScrollDetectorService : AccessibilityService() {
 
     private var reelsViewed = 0
     private var notifyAfterReels = 5
+
+    private lateinit var usageRepository: UsageRepository
 
     private var lastReelEventTime = 0L
     private val REEL_COOLDOWN_MS = 700L
@@ -58,7 +61,7 @@ class ScrollDetectorService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-
+        usageRepository = UsageRepository(this)
         unconsciousDetector = UnconsciousScrollingDetector(applicationContext)
 
         CoroutineScope(Dispatchers.IO).launch {
@@ -149,6 +152,10 @@ class ScrollDetectorService : AccessibilityService() {
 
                 reelsViewed++
                 lastReelEventTime = now
+
+                CoroutineScope(Dispatchers.IO).launch {
+                    usageRepository.incrementReelsViewed()
+                }
 
                 Log.d("ReelsCounter", "Reels viewed: $reelsViewed")
 

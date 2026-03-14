@@ -24,9 +24,12 @@ fun DashboardScreen(
 
     val usageMinutesToday by viewModel.totalUsageMinutesToday.collectAsState()
     val deepScrollCount by viewModel.deepScrollCount.collectAsState()
-
+    val monthStats by viewModel.monthStats.collectAsState()
     // 🔢 reel reminder preference
     val notifyAfterReels by viewModel.notifyAfterReels.collectAsState()
+    val yearStats by viewModel.yearStats.collectAsState()
+    val todayStats by viewModel.todayStats.collectAsState()
+    val reelsViewedToday = todayStats?.reelsViewed ?: 0
 
     // input state
     var tempInput by remember { mutableStateOf(notifyAfterReels.toString()) }
@@ -180,6 +183,20 @@ fun DashboardScreen(
             ) {
 
                 StatCard(
+                    title = "Reels watched",
+                    value = reelsViewedToday.toString(),
+                    icon = Icons.Default.FlashOn,
+                    modifier = Modifier.weight(1f)
+                )
+
+                StatCard(
+                    title = "Deep scroll moments",
+                    value = deepScrollCount.toString(),
+                    icon = Icons.Default.FlashOn,
+                    modifier = Modifier.weight(1f)
+                )
+
+                StatCard(
                     title = "Time on Instagram",
                     value =
                         if (usageMinutesToday == 0L) "—"
@@ -192,16 +209,19 @@ fun DashboardScreen(
                     icon = Icons.Default.Timer,
                     modifier = Modifier.weight(1f)
                 )
-
-                StatCard(
-                    title = "Deep scroll moments",
-                    value = deepScrollCount.toString(),
-                    icon = Icons.Default.FlashOn,
-                    modifier = Modifier.weight(1f)
-                )
             }
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(24.dp))
+
+
+            Text(
+                text = "This month",
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            MonthHeatmap(stats = monthStats)
 
             Text(
                 text = "Unscroll doesn’t block — it helps you notice.",
