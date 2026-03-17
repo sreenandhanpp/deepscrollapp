@@ -4,9 +4,9 @@ import androidx.compose.ui.graphics.Color
 
 val WarmCream = Color(0xFFFFF9F2)
 val SoftOrange = Color(0xFFFEA886)
-val SageGreen = Color(0xFFC8E6C9)
+
 val DeepCharcoal = Color(0xFF1C1B1F)
-val MutedSlate = Color(0xFF4A4A4A)
+
 
 // Dark Mode Palette (Warm/Soft)
 val DarkBackground = Color(0xFF1A1918)

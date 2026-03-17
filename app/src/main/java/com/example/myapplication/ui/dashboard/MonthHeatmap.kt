@@ -16,14 +16,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myapplication.data.analytics.ScrollDailyStats
 import java.time.LocalDate
+import java.time.YearMonth
 
 @Composable
 fun MonthHeatmap(
     stats: List<ScrollDailyStats>
 ) {
 
-    val today = LocalDate.now()
-    val daysInMonth = today.lengthOfMonth()
+    val yearMonth = YearMonth.now()
+    val daysInMonth = yearMonth.lengthOfMonth()
 
     val map = stats.associateBy { it.date }
 
@@ -32,16 +33,51 @@ fun MonthHeatmap(
 
     Column {
 
+        selectedDay?.let {
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+
+                Column(
+                    modifier = Modifier.padding(16.dp)
+                ) {
+
+                    Text(
+                        text = "Day $selectedDay",
+                        style = MaterialTheme.typography.titleSmall
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        text = "Reels watched: ${selectedStat?.reelsViewed ?: 0}"
+                    )
+
+                    Text(
+                        text = "Deep scrolls: ${selectedStat?.deepScrollCount ?: 0}"
+                    )
+                }
+            }
+        }
+
         LazyVerticalGrid(
             columns = GridCells.Fixed(7),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(220.dp)   // IMPORTANT (prevents collapse)
         ) {
 
             items((1..daysInMonth).toList()) { day ->
 
-                val date = today.withDayOfMonth(day).toString()
+                val date = yearMonth.atDay(day).toString()
                 val stat = map[date]
 
                 val reels = stat?.reelsViewed ?: 0
@@ -68,43 +104,7 @@ fun MonthHeatmap(
                     Text(
                         text = day.toString(),
                         fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        if (selectedDay != null) {
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-
-                Column(
-                    modifier = Modifier.padding(16.dp)
-                ) {
-
-                    Text(
-                        text = "Day $selectedDay",
-                        style = MaterialTheme.typography.titleSmall
-                    )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    Text(
-                        text = "Reels watched: ${selectedStat?.reelsViewed ?: 0}",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-
-                    Text(
-                        text = "Deep scrolls: ${selectedStat?.deepScrollCount ?: 0}",
-                        style = MaterialTheme.typography.bodyMedium
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }

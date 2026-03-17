@@ -174,7 +174,7 @@ class ScrollDetectorService : AccessibilityService() {
         ) {
             deepScrollRecordedThisSession = true
             CoroutineScope(Dispatchers.IO).launch {
-                UsageDataStore.incrementDeepScroll(applicationContext)
+                usageRepository.incrementDeepScroll()
             }
         }
 

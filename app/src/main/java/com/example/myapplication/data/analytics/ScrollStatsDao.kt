@@ -31,4 +31,10 @@ interface ScrollStatsDao {
 
     @Query("SELECT * FROM scroll_daily_stats WHERE date >= :startDate")
     suspend fun getStatsFrom(startDate: String): List<ScrollDailyStats>
+
+    @Query("SELECT * FROM scroll_daily_stats WHERE isSynced = 0")
+    suspend fun getUnsyncedStats(): List<ScrollDailyStats>
+
+    @Query("UPDATE scroll_daily_stats SET isSynced = 1 WHERE date IN (:dates)")
+    suspend fun markSynced(dates: List<String>)
 }

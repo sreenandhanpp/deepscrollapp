@@ -15,12 +15,15 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 
 @Composable
 fun DashboardScreen(
     viewModel: MainViewModel,
     onOpenNotificationSettings: () -> Unit,
-) {
+    onOpenYearHeatmap: () -> Unit
+){
 
     val usageMinutesToday by viewModel.totalUsageMinutesToday.collectAsState()
     val deepScrollCount by viewModel.deepScrollCount.collectAsState()
@@ -49,6 +52,7 @@ fun DashboardScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(20.dp)
         ) {
 
@@ -214,14 +218,34 @@ fun DashboardScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
 
-            Text(
-                text = "This month",
-                style = MaterialTheme.typography.titleMedium
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+
+                Text(
+                    text = "This month",
+                    style = MaterialTheme.typography.titleMedium
+                )
+
+                TextButton(
+                    onClick = { onOpenYearHeatmap() }
+                ) {
+                    Text("View all")
+                }
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 
             MonthHeatmap(stats = monthStats)
+
+            Button(
+                onClick = { viewModel.openUserIdScreen() }
+            ) {
+                Text("Device ID")
+            }
+
 
             Text(
                 text = "Unscroll doesn’t block — it helps you notice.",
@@ -229,6 +253,8 @@ fun DashboardScreen(
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                 modifier = Modifier.align(Alignment.CenterHorizontally)
             )
+
+
 
             Spacer(modifier = Modifier.height(16.dp))
         }

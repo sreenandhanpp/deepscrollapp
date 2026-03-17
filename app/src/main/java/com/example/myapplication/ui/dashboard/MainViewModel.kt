@@ -17,6 +17,17 @@ class MainViewModel(
 
     /* ---------------- MONTH + YEAR ANALYTICS ---------------- */
 
+    private val _showUserIdScreen = MutableStateFlow(false)
+    val showUserIdScreen = _showUserIdScreen.asStateFlow()
+
+    fun openUserIdScreen() {
+        _showUserIdScreen.value = true
+    }
+
+    fun closeUserIdScreen() {
+        _showUserIdScreen.value = false
+    }
+
     private val _monthStats = MutableStateFlow<List<ScrollDailyStats>>(emptyList())
     val monthStats: StateFlow<List<ScrollDailyStats>> = _monthStats
 

@@ -14,9 +14,10 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.myapplication.ui.dashboard.DashboardScreen
 import com.example.myapplication.ui.dashboard.MainViewModel
+import com.example.myapplication.ui.dashboard.YearHeatmapScreen
 import com.example.myapplication.ui.notifications.NotificationSettingsScreen
 import com.example.myapplication.ui.onboarding.OnboardingHost
-import com.example.myapplication.ui.onboarding.UpgradeScreen
+import com.example.myapplication.ui.settings.UserIdScreen
 import com.example.myapplication.ui.theme.AuraTheme
 
 class MainActivity : ComponentActivity() {
@@ -28,6 +29,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             AuraTheme {
+
                 val mainViewModel: MainViewModel = viewModel()
 
                 val onboardingCompleted =
@@ -36,26 +38,51 @@ class MainActivity : ComponentActivity() {
                 val showNotificationSettings =
                     mainViewModel.showNotificationSettings.collectAsState().value
 
+                val showUserIdScreen =
+                    mainViewModel.showUserIdScreen.collectAsState().value
+
                 val showUpgrade =
                     mainViewModel.showUpgrade.collectAsState().value
 
+                var showYearHeatmap = androidx.compose.runtime.remember {
+                    androidx.compose.runtime.mutableStateOf(false)
+                }
+
                 Surface {
+
                     when {
-                        // 🧭 Onboarding
-                        // 🧭 Onboarding
+
+                        /* ---------------- ONBOARDING ---------------- */
+
                         !onboardingCompleted -> {
                             OnboardingHost(
                                 onFinish = {
                                     mainViewModel.completeOnboarding()
-                                    mainViewModel.showUpgradeOnce() // ✅ ONLY PLACE
+                                    mainViewModel.showUpgradeOnce()
                                 }
                             )
                         }
 
+                        /* ---------------- USER ID SCREEN ---------------- */
 
+                        showUserIdScreen -> {
+                            UserIdScreen(
+                                onBack = {
+                                    mainViewModel.closeUserIdScreen()
+                                }
+                            )
+                        }
 
+                        /* ---------------- HEATMAP SCREEN ---------------- */
 
-                        // 🔔 Notification Settings
+                        showYearHeatmap.value -> {
+                            YearHeatmapScreen(
+                                viewModel = mainViewModel
+                            )
+                        }
+
+                        /* ---------------- NOTIFICATION SETTINGS ---------------- */
+
                         showNotificationSettings -> {
                             NotificationSettingsScreen(
                                 viewModel = mainViewModel,
@@ -65,14 +92,19 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // 🏠 Dashboard
+                        /* ---------------- DASHBOARD ---------------- */
+
                         else -> {
+
                             requestNotificationPermission()
 
                             DashboardScreen(
                                 viewModel = mainViewModel,
                                 onOpenNotificationSettings = {
                                     mainViewModel.openNotificationSettings()
+                                },
+                                onOpenYearHeatmap = {
+                                    showYearHeatmap.value = true
                                 }
                             )
                         }
@@ -83,12 +115,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestNotificationPermission() {
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+
             if (ContextCompat.checkSelfPermission(
                     this,
                     Manifest.permission.POST_NOTIFICATIONS
                 ) != PackageManager.PERMISSION_GRANTED
             ) {
+
                 ActivityCompat.requestPermissions(
                     this,
                     arrayOf(Manifest.permission.POST_NOTIFICATIONS),

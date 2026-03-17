@@ -1,6 +1,7 @@
 package com.example.myapplication.data.analytics
 
 import android.content.Context
+import com.example.myapplication.data.sync.StatDto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -18,6 +19,8 @@ class UsageRepository(context: Context) {
         return LocalDate.now().toString()
     }
 
+    /* ---------------- CURRENT MONTH ---------------- */
+
     suspend fun getCurrentMonthStats(): List<ScrollDailyStats> {
 
         val startDate = LocalDate.now()
@@ -28,17 +31,19 @@ class UsageRepository(context: Context) {
             dao.getStatsFrom(startDate)
         }
     }
-    /* ---------------- OBSERVE TODAY STATS ---------------- */
+
+    /* ---------------- OBSERVE TODAY ---------------- */
 
     fun observeTodayStats(): Flow<ScrollDailyStats?> {
         return dao.observeStatsForDate(today())
     }
 
-    /* ---------------- GET TODAY STATS ---------------- */
+    /* ---------------- GET TODAY ---------------- */
 
-    suspend fun getTodayStats(): ScrollDailyStats? {
+    suspend fun getTodayStats(): ScrollDailyStats {
         return withContext(Dispatchers.IO) {
             dao.getStatsForDate(today())
+                ?: ScrollDailyStats(date = today())
         }
     }
 
@@ -49,7 +54,6 @@ class UsageRepository(context: Context) {
         withContext(Dispatchers.IO) {
 
             val date = today()
-
             val stats = dao.getStatsForDate(date)
 
             if (stats == null) {
@@ -58,7 +62,10 @@ class UsageRepository(context: Context) {
                     ScrollDailyStats(
                         date = date,
                         reelsViewed = 1,
-                        deepScrollCount = 0
+                        deepScrollCount = 0,
+                        usageMinutes = 0,
+                        sessions = 0,
+                        isSynced = false
                     )
                 )
 
@@ -66,7 +73,8 @@ class UsageRepository(context: Context) {
 
                 dao.insert(
                     stats.copy(
-                        reelsViewed = stats.reelsViewed + 1
+                        reelsViewed = stats.reelsViewed + 1,
+                        isSynced = false
                     )
                 )
             }
@@ -80,7 +88,6 @@ class UsageRepository(context: Context) {
         withContext(Dispatchers.IO) {
 
             val date = today()
-
             val stats = dao.getStatsForDate(date)
 
             if (stats == null) {
@@ -89,7 +96,10 @@ class UsageRepository(context: Context) {
                     ScrollDailyStats(
                         date = date,
                         reelsViewed = 0,
-                        deepScrollCount = 1
+                        deepScrollCount = 1,
+                        usageMinutes = 0,
+                        sessions = 0,
+                        isSynced = false
                     )
                 )
 
@@ -97,7 +107,8 @@ class UsageRepository(context: Context) {
 
                 dao.insert(
                     stats.copy(
-                        deepScrollCount = stats.deepScrollCount + 1
+                        deepScrollCount = stats.deepScrollCount + 1,
+                        isSynced = false
                     )
                 )
             }
@@ -115,6 +126,39 @@ class UsageRepository(context: Context) {
 
         return withContext(Dispatchers.IO) {
             dao.getStatsFrom(startDate)
+        }
+    }
+
+    /* ---------------- UNSYNCED DATA ---------------- */
+
+    suspend fun getUnsyncedStats(): List<ScrollDailyStats> {
+        return withContext(Dispatchers.IO) {
+            dao.getUnsyncedStats()
+        }
+    }
+
+    /* ---------------- MARK AS SYNCED ---------------- */
+
+    suspend fun markSynced(stats: List<ScrollDailyStats>) {
+
+        val dates = stats.map { it.date }
+
+        withContext(Dispatchers.IO) {
+            dao.markSynced(dates)
+        }
+    }
+
+    /* ---------------- DTO MAPPER ---------------- */
+
+    fun mapToDto(stats: List<ScrollDailyStats>): List<StatDto> {
+        return stats.map {
+            StatDto(
+                date = it.date,
+                reelsViewed = it.reelsViewed,
+                deepScrollCount = it.deepScrollCount,
+                usageMinutes = it.usageMinutes,
+                sessions = it.sessions
+            )
         }
     }
 }
