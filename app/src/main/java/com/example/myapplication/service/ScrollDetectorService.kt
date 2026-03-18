@@ -1,7 +1,6 @@
 package com.example.myapplication.service
 
 import android.accessibilityservice.AccessibilityService
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -10,7 +9,6 @@ import com.example.myapplication.data.NotificationSettingsStore
 import com.example.myapplication.data.UsageDataStore
 import com.example.myapplication.data.analytics.UsageRepository
 import com.example.myapplication.service.detector.UnconsciousScrollingDetector
-import com.example.myapplication.service.detector.UnconsciousType
 import com.example.myapplication.utils.NotificationHelper
 import kotlinx.coroutines.*
 import kotlin.math.abs
@@ -27,8 +25,16 @@ class ScrollDetectorService : AccessibilityService() {
     private var lastReelEventTime = 0L
     private val REEL_COOLDOWN_MS = 700L
 
-    /* milestone tracker */
     private var nextNotifyReel = 5
+
+    /* ================= INDEX TRACKING ================= */
+
+    private var lastIndex = -1
+    private var isFirstIndexIgnored = false
+
+    /* ================= DELTA FALLBACK ================= */
+
+    private var lastScrollY = 0
 
     /* ================= SESSION ================= */
 
@@ -40,60 +46,30 @@ class ScrollDetectorService : AccessibilityService() {
     private var lastPersistedMs = 0L
 
     private val SESSION_RESET_MS = 5 * 60_000L
-    private val MIN_SESSION_MS = 2_000L
-
-    /* ================= RAPID SCROLL ================= */
-
-    private var rapidScrollStreak = 0
-    private var lastRapidScrollTime = 0L
-
-    private val RAPID_SCROLL_THRESHOLD_MS = 500L
-    private val RAPID_SCROLL_STREAK_LIMIT = 3
-    private val UNCONSCIOUS_COOLDOWN_MS = 45_000L
-    private var lastUnconsciousNotificationTime = 0L
 
     private val handler = Handler(Looper.getMainLooper())
     private var endSessionRunnable: Runnable? = null
 
     private lateinit var unconsciousDetector: UnconsciousScrollingDetector
 
+    /* ================= COROUTINE ================= */
+
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     /* ================================================= */
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+
         usageRepository = UsageRepository(this)
         unconsciousDetector = UnconsciousScrollingDetector(applicationContext)
 
-        CoroutineScope(Dispatchers.IO).launch {
-
-            // 1️⃣ Load saved value immediately
+        serviceScope.launch {
             val initialLimit =
                 NotificationSettingsStore.getNotifyAfterReels(applicationContext)
 
             notifyAfterReels = initialLimit.coerceAtLeast(1)
             nextNotifyReel = notifyAfterReels
-
-            Log.d("ReelsSetting", "Initial limit → $notifyAfterReels")
-
-            // 2️⃣ Listen for future changes
-            NotificationSettingsStore
-                .notifyAfterReelsFlow(applicationContext)
-                .collect { newLimit ->
-
-                    val limit = newLimit.coerceAtLeast(1)
-
-                    if (limit != notifyAfterReels) {
-
-                        notifyAfterReels = limit
-
-                        // Reset session counters
-                        reelsViewed = 0
-                        nextNotifyReel = notifyAfterReels
-                        lastReelEventTime = 0L
-
-                        Log.d("ReelsSetting", "Limit changed → $notifyAfterReels")
-                    }
-                }
         }
     }
 
@@ -107,13 +83,9 @@ class ScrollDetectorService : AccessibilityService() {
         val pkg = event.packageName?.toString() ?: return false
         val className = event.className?.toString() ?: return false
 
-        if (pkg != "com.instagram.android")
-            return false
-
-        if (className != "androidx.viewpager.widget.ViewPager")
-            return false
-
-        return true
+        return pkg == "com.instagram.android" &&
+                (className.contains("ViewPager") ||
+                        className.contains("RecyclerView"))
     }
 
     /* ================================================= */
@@ -123,47 +95,62 @@ class ScrollDetectorService : AccessibilityService() {
         val pkg = event.packageName?.toString() ?: return
         val now = System.currentTimeMillis()
 
-        // Ignore non-Instagram events
-        if (pkg != "com.instagram.android") {
-            return
-        }
+        if (pkg != "com.instagram.android") return
 
-        // Update last event time FIRST
-        if (lastEventTime == 0L) {
-            lastEventTime = now
-        }
+        // 🔥 store previous time FIRST
+        val prevTime = lastEventTime
 
-        // Reset session if idle for too long
-        if (now - lastEventTime > SESSION_RESET_MS) {
+        // 🔥 reset session if idle
+        if (lastEventTime != 0L && now - lastEventTime > SESSION_RESET_MS) {
             endSession()
         }
 
-        // Update event time again for current event
-        lastEventTime = now
+        // 🔥 update session time
+        handleSessionTime(now)
 
-        val isScrollEvent =
-            event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED
+        // 🔥 ALWAYS run detector
+        unconsciousDetector.onAccessibilityEvent(event, now, prevTime)
 
         /* ================= REEL DETECTION ================= */
 
         if (isReelsScroll(event)) {
+
+            val toIndex = event.toIndex
+            val currentY = event.scrollY
+
+            var isForwardScroll = false
+
+            if (toIndex != -1) {
+
+                if (!isFirstIndexIgnored) {
+                    lastIndex = toIndex
+                    isFirstIndexIgnored = true
+                    return
+                }
+
+                isForwardScroll = toIndex > lastIndex
+                lastIndex = toIndex
+
+            } else {
+
+                val deltaY = currentY - lastScrollY
+                lastScrollY = currentY
+                isForwardScroll = deltaY > 100
+            }
+
+            if (!isForwardScroll) return
 
             if (now - lastReelEventTime > REEL_COOLDOWN_MS) {
 
                 reelsViewed++
                 lastReelEventTime = now
 
-                CoroutineScope(Dispatchers.IO).launch {
+                serviceScope.launch {
                     usageRepository.incrementReelsViewed()
                 }
 
-                Log.d("ReelsCounter", "Reels viewed: $reelsViewed")
-
                 checkReelNotification()
             }
-
-            unconsciousDetector.updateLastEventTime(now)
-            unconsciousDetector.onAccessibilityEvent(event, now)
         }
 
         /* ================= DEEP SCROLL ================= */
@@ -173,33 +160,28 @@ class ScrollDetectorService : AccessibilityService() {
             !deepScrollRecordedThisSession
         ) {
             deepScrollRecordedThisSession = true
-            CoroutineScope(Dispatchers.IO).launch {
+
+            serviceScope.launch {
+
+                Log.d("DeepScroll", "Triggered")
+
+                UsageDataStore.incrementDeepScroll(applicationContext)
                 usageRepository.incrementDeepScroll()
             }
         }
 
-        /* ================= FILTER ================= */
+        scheduleSessionTimeout()
+    }
 
-        if (isScrollEvent && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            if (abs(event.scrollDeltaX) > abs(event.scrollDeltaY)) return
-            if (event.scrollDeltaY == 0 && event.maxScrollY == 0) return
-        }
+    /* ================================================= */
 
-        /* ================= SESSION ================= */
-
-        if (lastEventTime != 0L && now - lastEventTime > SESSION_RESET_MS) {
-            endSession()
-        }
+    private fun handleSessionTime(now: Long) {
 
         if (sessionStartTime == 0L) {
-
             sessionStartTime = now
             lastEventTime = now
             accumulatedSessionTime = 0L
             lastPersistedMs = 0L
-            rapidScrollStreak = 0
-            lastRapidScrollTime = 0L
-
             return
         }
 
@@ -210,47 +192,18 @@ class ScrollDetectorService : AccessibilityService() {
         val deltaSincePersist = accumulatedSessionTime - lastPersistedMs
 
         if (deltaSincePersist >= 60_000L) {
-            CoroutineScope(Dispatchers.IO).launch {
+
+            serviceScope.launch {
+
+                // UI
                 UsageDataStore.addSessionTime(applicationContext, deltaSincePersist)
+
+                // DB
+                usageRepository.addSessionTime(deltaSincePersist)
             }
+
             lastPersistedMs += deltaSincePersist
         }
-
-        /* ================= RAPID SCROLL ================= */
-
-        if (isScrollEvent) {
-
-            val sinceLast = now - lastRapidScrollTime
-
-            rapidScrollStreak =
-                if (sinceLast < RAPID_SCROLL_THRESHOLD_MS)
-                    rapidScrollStreak + 1
-                else
-                    1
-
-            lastRapidScrollTime = now
-
-            if (
-                accumulatedSessionTime >= 2 * 60_000L &&
-                rapidScrollStreak >= RAPID_SCROLL_STREAK_LIMIT &&
-                now - lastUnconsciousNotificationTime > UNCONSCIOUS_COOLDOWN_MS
-            ) {
-
-                lastUnconsciousNotificationTime = now
-
-                NotificationHelper.showUnconsciousScrollingNotification(
-                    applicationContext,
-                    UnconsciousType.RAPID_SWIPING
-                )
-            }
-        }
-
-        if (accumulatedSessionTime < MIN_SESSION_MS) {
-            scheduleSessionTimeout()
-            return
-        }
-
-        scheduleSessionTimeout()
     }
 
     /* ================================================= */
@@ -283,31 +236,33 @@ class ScrollDetectorService : AccessibilityService() {
 
     private fun endSession() {
 
-        if (sessionStartTime == 0L) return
-
+        // 🔥 Save remaining time
         val remaining = accumulatedSessionTime - lastPersistedMs
 
         if (remaining >= 60_000L) {
-            CoroutineScope(Dispatchers.IO).launch {
+            serviceScope.launch {
+
                 UsageDataStore.addSessionTime(applicationContext, remaining)
+
+                usageRepository.addSessionTime(remaining)
             }
         }
 
         unconsciousDetector.resetSession()
-
         deepScrollRecordedThisSession = false
 
         sessionStartTime = 0L
         lastEventTime = 0L
         accumulatedSessionTime = 0L
         lastPersistedMs = 0L
-        rapidScrollStreak = 0
-        lastRapidScrollTime = 0L
-        lastUnconsciousNotificationTime = 0L
 
         reelsViewed = 0
         nextNotifyReel = notifyAfterReels
         lastReelEventTime = 0L
+
+        lastIndex = -1
+        isFirstIndexIgnored = false
+        lastScrollY = 0
 
         endSessionRunnable?.let { handler.removeCallbacks(it) }
         endSessionRunnable = null
@@ -316,6 +271,7 @@ class ScrollDetectorService : AccessibilityService() {
     override fun onInterrupt() = endSession()
 
     override fun onDestroy() {
+        serviceScope.cancel()
         endSession()
         super.onDestroy()
     }

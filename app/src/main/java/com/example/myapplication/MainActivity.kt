@@ -19,6 +19,10 @@ import com.example.myapplication.ui.notifications.NotificationSettingsScreen
 import com.example.myapplication.ui.onboarding.OnboardingHost
 import com.example.myapplication.ui.settings.UserIdScreen
 import com.example.myapplication.ui.theme.AuraTheme
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import com.example.myapplication.data.sync.RegisterManager
+import com.example.myapplication.data.sync.SyncScheduler
 
 class MainActivity : ComponentActivity() {
 
@@ -26,6 +30,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         enableEdgeToEdge()
+        // 🔥 ADD THIS BLOCK HERE
+        lifecycleScope.launch {
+
+            // 1️⃣ Register child (only once)
+            RegisterManager.registerIfNeeded(applicationContext)
+
+            // 2️⃣ Schedule background sync
+            SyncScheduler.schedule(applicationContext)
+        }
 
         setContent {
             AuraTheme {

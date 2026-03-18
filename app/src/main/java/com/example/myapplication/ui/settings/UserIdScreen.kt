@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.data.sync.DeviceIdManager
+import com.example.myapplication.data.sync.RegisterManager
 import kotlinx.coroutines.launch
 
 @Composable
@@ -25,11 +26,11 @@ fun UserIdScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    var deviceId by remember { mutableStateOf("Loading...") }
+    var childId by remember { mutableStateOf("Loading...") }
     var copied by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        deviceId = DeviceIdManager.getDeviceId(context)
+        childId = RegisterManager.getChildId(context)
     }
 
     Column(
@@ -56,7 +57,7 @@ fun UserIdScreen(
             ) {
 
                 Text(
-                    text = deviceId,
+                    text = childId,
                     style = MaterialTheme.typography.bodyMedium
                 )
 
@@ -69,7 +70,7 @@ fun UserIdScreen(
                             .getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
 
                         clipboard.setPrimaryClip(
-                            ClipData.newPlainText("device_id", deviceId)
+                            ClipData.newPlainText("device_id", childId)
                         )
 
                         copied = true

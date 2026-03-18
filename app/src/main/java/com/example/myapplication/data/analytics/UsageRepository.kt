@@ -161,4 +161,28 @@ class UsageRepository(context: Context) {
             )
         }
     }
+
+    suspend fun addSessionTime(durationMs: Long) {
+
+        val minutes = (durationMs / 60_000L).toInt().coerceAtLeast(1)
+        val date = LocalDate.now().toString()
+        val stats = dao.getStatsForDate(date)
+
+        if (stats == null) {
+            dao.insert(
+                ScrollDailyStats(
+                    date = date,
+                    usageMinutes = minutes,
+                    isSynced = false
+                )
+            )
+        } else {
+            dao.insert(
+                stats.copy(
+                    usageMinutes = stats.usageMinutes + minutes,
+                    isSynced = false
+                )
+            )
+        }
+    }
 }

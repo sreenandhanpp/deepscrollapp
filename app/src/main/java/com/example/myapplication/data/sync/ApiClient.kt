@@ -5,14 +5,20 @@ import retrofit2.converter.gson.GsonConverterFactory
 
 object ApiClient {
 
-    private const val BASE_URL = "http://localhost:5000/"
-    // emulator → localhost
+    private const val BASE_URL = "http://10.184.26.113:5000/"
 
-    val syncApi: SyncApi by lazy {
+    val retrofit: Retrofit by lazy {
         Retrofit.Builder()
             .baseUrl(BASE_URL)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
-            .create(SyncApi::class.java)
+    }
+
+    val syncApi: SyncApi by lazy {
+        retrofit.create(SyncApi::class.java)
+    }
+
+    val authApi: AuthApi by lazy {
+        retrofit.create(AuthApi::class.java)
     }
 }
