@@ -8,12 +8,14 @@ import com.example.myapplication.data.analytics.ScrollDailyStats
 import com.example.myapplication.data.analytics.UsageRepository
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import android.util.Log
 
 class MainViewModel(
     application: Application
 ) : AndroidViewModel(application) {
 
     private val repository = UsageRepository(application)
+    private val context = application
 
     /* ---------------- MONTH + YEAR ANALYTICS ---------------- */
 
@@ -103,13 +105,26 @@ class MainViewModel(
 
     /* ---------------- USAGE STATS ---------------- */
 
-    val totalUsageMinutesToday = UsageDataStore
+    // DataStore flow
+    private val dataStoreMinutes = UsageDataStore
         .totalTimeMinutesFlow(application)
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = 0L
-        )
+        .flowOn(kotlinx.coroutines.Dispatchers.IO)
+
+    // Combine DataStore and Room for the best of both worlds
+    val totalUsageMinutesToday = combine(
+        dataStoreMinutes,
+        todayStats
+    ) { dataStoreMinutes, roomStats ->
+        val roomMinutes = roomStats?.usageMinutes?.toLong() ?: 0L
+        // Use the maximum of both sources to ensure we never lose data
+        val maxMinutes = maxOf(dataStoreMinutes, roomMinutes)
+        Log.d("MainViewModel", "DataStore: $dataStoreMinutes, Room: $roomMinutes, Using: $maxMinutes")
+        maxMinutes
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = 0L
+    )
 
     val deepScrollCount = UsageDataStore
         .deepScrollCountFlow(application)
@@ -161,6 +176,8 @@ class MainViewModel(
     init {
         viewModelScope.launch {
             loadNotificationToggles()
+            // Force a sync between DataStore and Room
+            syncDataSources()
         }
 
         loadYearStats()
@@ -168,13 +185,28 @@ class MainViewModel(
     }
 
     private suspend fun loadNotificationToggles() {
-
         _timeReminderEnabled.value = true
         _rapidSwipeEnabled.value = true
         _zoneOutEnabled.value = true
         _roboticEnabled.value = true
         _deepDiveEnabled.value = true
         _mindlessEnabled.value = true
+    }
+
+    private suspend fun syncDataSources() {
+        // Get current values
+        val dataStoreMin = dataStoreMinutes.first()
+        val roomStats = todayStats.first()
+        val roomMin = roomStats?.usageMinutes?.toLong() ?: 0L
+
+        // If DataStore has more minutes than Room, update Room
+        if (dataStoreMin > roomMin && dataStoreMin > 0) {
+            Log.d("MainViewModel", "Syncing DataStore ($dataStoreMin) to Room ($roomMin)")
+            val differenceMinutes = (dataStoreMin - roomMin).toInt()
+            if (differenceMinutes > 0) {
+                repository.addSessionTime(differenceMinutes * 60_000L)
+            }
+        }
     }
 
     fun setTimeReminderEnabled(enabled: Boolean) {

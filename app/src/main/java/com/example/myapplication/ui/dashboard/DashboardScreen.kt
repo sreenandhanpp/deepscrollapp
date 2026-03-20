@@ -17,45 +17,48 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 
 @Composable
 fun DashboardScreen(
     viewModel: MainViewModel,
     onOpenNotificationSettings: () -> Unit,
     onOpenYearHeatmap: () -> Unit
-){
-
+) {
     val usageMinutesToday by viewModel.totalUsageMinutesToday.collectAsState()
     val deepScrollCount by viewModel.deepScrollCount.collectAsState()
     val monthStats by viewModel.monthStats.collectAsState()
-    // 🔢 reel reminder preference
     val notifyAfterReels by viewModel.notifyAfterReels.collectAsState()
-    val yearStats by viewModel.yearStats.collectAsState()
     val todayStats by viewModel.todayStats.collectAsState()
     val reelsViewedToday = todayStats?.reelsViewed ?: 0
 
-    // input state
-    var tempInput by remember { mutableStateOf(notifyAfterReels.toString()) }
+    // Debug flag - set to false in production
+    val showDebugInfo = false
 
+    var tempInput by remember { mutableStateOf(notifyAfterReels.toString()) }
     val focusManager = LocalFocusManager.current
     var showSavedMessage by remember { mutableStateOf(false) }
     var savedValue by remember { mutableStateOf("") }
 
     val coroutineScope = rememberCoroutineScope()
 
+    // Update tempInput when notifyAfterReels changes
+    LaunchedEffect(notifyAfterReels) {
+        tempInput = notifyAfterReels.toString()
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(20.dp)
         ) {
-
             Spacer(modifier = Modifier.height(24.dp))
 
             Row(
@@ -63,26 +66,24 @@ fun DashboardScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-
                 Text(
                     text = "Hello 👋",
                     style = MaterialTheme.typography.headlineMedium
                 )
 
-                IconButton(
-                    onClick = { onOpenNotificationSettings() }
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Notifications,
-                        contentDescription = "Notification settings"
-                    )
-                }
+//                IconButton(
+//                    onClick = { onOpenNotificationSettings() }
+//                ) {
+//                    Icon(
+//                        imageVector = Icons.Default.Notifications,
+//                        contentDescription = "Notification settings"
+//                    )
+//                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
             /* ---------------- UNROLL CARD ---------------- */
-
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
@@ -91,14 +92,11 @@ fun DashboardScreen(
                 )
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
-
                     Text(
                         text = "Unscroll",
                         style = MaterialTheme.typography.titleLarge
                     )
-
                     Spacer(modifier = Modifier.height(6.dp))
-
                     Text(
                         text = "Quiet awareness while you scroll",
                         style = MaterialTheme.typography.bodyMedium
@@ -109,7 +107,6 @@ fun DashboardScreen(
             Spacer(modifier = Modifier.height(32.dp))
 
             /* ---------------- REEL REMINDER ---------------- */
-
             Text(
                 text = "Gentle reminder",
                 style = MaterialTheme.typography.titleMedium
@@ -134,13 +131,9 @@ fun DashboardScreen(
             Button(
                 onClick = {
                     tempInput.toIntOrNull()?.let { reels ->
-
                         if (reels > 0) {
-
                             viewModel.updateNotifyAfterReels(reels)
-
                             savedValue = reels.toString()
-
                             showSavedMessage = true
 
                             coroutineScope.launch {
@@ -149,8 +142,6 @@ fun DashboardScreen(
                             }
 
                             focusManager.clearFocus()
-
-                            tempInput = reels.toString()
                         }
                     }
                 },
@@ -160,9 +151,7 @@ fun DashboardScreen(
             }
 
             if (showSavedMessage) {
-
                 Spacer(modifier = Modifier.height(6.dp))
-
                 Text(
                     text = "Saved! We'll remind you after $savedValue reels.",
                     style = MaterialTheme.typography.bodySmall,
@@ -173,7 +162,6 @@ fun DashboardScreen(
             Spacer(modifier = Modifier.height(32.dp))
 
             /* ---------------- TODAY STATS ---------------- */
-
             Text(
                 text = "Today’s reflection",
                 style = MaterialTheme.typography.titleMedium
@@ -185,45 +173,51 @@ fun DashboardScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-
                 StatCard(
-                    title = "Reels watched",
+                    title = "Reels",
                     value = reelsViewedToday.toString(),
                     icon = Icons.Default.FlashOn,
                     modifier = Modifier.weight(1f)
                 )
 
                 StatCard(
-                    title = "Deep scroll moments",
+                    title = "Deep scrolls",
                     value = deepScrollCount.toString(),
                     icon = Icons.Default.FlashOn,
                     modifier = Modifier.weight(1f)
                 )
 
                 StatCard(
-                    title = "Time on Instagram",
-                    value =
-                        if (usageMinutesToday == 0L) "—"
-                        else {
-                            val hours = usageMinutesToday / 60
-                            val mins = usageMinutesToday % 60
-                            if (hours > 0) "${hours}h ${mins}m"
-                            else "${mins}m"
-                        },
+                    title = "Time spent",
+                    value = formatTime(usageMinutesToday),
                     icon = Icons.Default.Timer,
                     modifier = Modifier.weight(1f)
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            // Debug info - only show if enabled and there's a discrepancy
+            if (showDebugInfo && todayStats != null && todayStats!!.usageMinutes != usageMinutesToday.toInt()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color.Yellow.copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = "Debug: Room: ${todayStats!!.usageMinutes}m, UI: ${usageMinutesToday}m",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(8.dp)
+                    )
+                }
+            }
 
+            Spacer(modifier = Modifier.height(24.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-
                 Text(
                     text = "This month",
                     style = MaterialTheme.typography.titleMedium
@@ -246,7 +240,6 @@ fun DashboardScreen(
                 Text("Device ID")
             }
 
-
             Text(
                 text = "Unscroll doesn’t block — it helps you notice.",
                 style = MaterialTheme.typography.bodySmall,
@@ -254,9 +247,20 @@ fun DashboardScreen(
                 modifier = Modifier.align(Alignment.CenterHorizontally)
             )
 
-
-
             Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+// Helper function to format time consistently
+private fun formatTime(minutes: Long): String {
+    return when {
+        minutes == 0L -> "—"
+        minutes < 60 -> "${minutes}m"
+        else -> {
+            val hours = minutes / 60
+            val mins = minutes % 60
+            if (mins > 0) "${hours}h ${mins}m" else "${hours}h"
         }
     }
 }

@@ -30,9 +30,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         enableEdgeToEdge()
-        // 🔥 ADD THIS BLOCK HERE
-        lifecycleScope.launch {
 
+        lifecycleScope.launch {
             // 1️⃣ Register child (only once)
             RegisterManager.registerIfNeeded(applicationContext)
 
@@ -90,7 +89,10 @@ class MainActivity : ComponentActivity() {
 
                         showYearHeatmap.value -> {
                             YearHeatmapScreen(
-                                viewModel = mainViewModel
+                                viewModel = mainViewModel,
+                                onNavigateBack = {
+                                    showYearHeatmap.value = false
+                                }
                             )
                         }
 

@@ -1,6 +1,7 @@
 package com.example.myapplication.data.analytics
 
 import android.content.Context
+import android.util.Log
 import com.example.myapplication.data.sync.StatDto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -9,180 +10,100 @@ import java.time.LocalDate
 
 class UsageRepository(context: Context) {
 
-    private val dao = ScrollDatabase
-        .getDatabase(context)
-        .statsDao()
+    private val dao = ScrollDatabase.getDatabase(context).statsDao()
 
-    /* ---------------- DATE HELPER ---------------- */
+    private fun today(): String = LocalDate.now().toString()
 
-    private fun today(): String {
-        return LocalDate.now().toString()
+    /* ---------------- OBSERVE / GET ---------------- */
+    fun observeTodayStats(): Flow<ScrollDailyStats?> = dao.observeStatsForDate(today())
+
+    suspend fun getTodayStats(): ScrollDailyStats = withContext(Dispatchers.IO) {
+        dao.getStatsForDate(today()) ?: ScrollDailyStats(date = today())
     }
 
-    /* ---------------- CURRENT MONTH ---------------- */
-
-    suspend fun getCurrentMonthStats(): List<ScrollDailyStats> {
-
-        val startDate = LocalDate.now()
-            .withDayOfMonth(1)
-            .toString()
-
-        return withContext(Dispatchers.IO) {
-            dao.getStatsFrom(startDate)
-        }
+    suspend fun getCurrentMonthStats(): List<ScrollDailyStats> = withContext(Dispatchers.IO) {
+        val start = LocalDate.now().withDayOfMonth(1).toString()
+        dao.getStatsFrom(start)
     }
 
-    /* ---------------- OBSERVE TODAY ---------------- */
-
-    fun observeTodayStats(): Flow<ScrollDailyStats?> {
-        return dao.observeStatsForDate(today())
+    suspend fun getLastYearStats(): List<ScrollDailyStats> = withContext(Dispatchers.IO) {
+        val start = LocalDate.now().minusDays(365).toString()
+        dao.getStatsFrom(start)
     }
 
-    /* ---------------- GET TODAY ---------------- */
-
-    suspend fun getTodayStats(): ScrollDailyStats {
-        return withContext(Dispatchers.IO) {
-            dao.getStatsForDate(today())
-                ?: ScrollDailyStats(date = today())
-        }
-    }
-
-    /* ---------------- INCREMENT REELS ---------------- */
-
+    /* ---------------- INCREMENTS (NOW SAFE) ---------------- */
     suspend fun incrementReelsViewed() {
-
+        val date = today()
         withContext(Dispatchers.IO) {
-
-            val date = today()
-            val stats = dao.getStatsForDate(date)
-
-            if (stats == null) {
-
-                dao.insert(
-                    ScrollDailyStats(
-                        date = date,
-                        reelsViewed = 1,
-                        deepScrollCount = 0,
-                        usageMinutes = 0,
-                        sessions = 0,
-                        isSynced = false
-                    )
-                )
-
+            if (dao.getStatsForDate(date) == null) {
+                dao.insert(ScrollDailyStats(date = date, reelsViewed = 1, isSynced = false))
             } else {
-
-                dao.insert(
-                    stats.copy(
-                        reelsViewed = stats.reelsViewed + 1,
-                        isSynced = false
-                    )
-                )
+                dao.incrementReelsViewed(date)
+                dao.markAsDirty(date)
             }
+            Log.d("DB_WRITE", "Reels incremented for $date")
         }
     }
-
-    /* ---------------- INCREMENT DEEP SCROLL ---------------- */
 
     suspend fun incrementDeepScroll() {
-
+        val date = today()
         withContext(Dispatchers.IO) {
-
-            val date = today()
-            val stats = dao.getStatsForDate(date)
-
-            if (stats == null) {
-
-                dao.insert(
-                    ScrollDailyStats(
-                        date = date,
-                        reelsViewed = 0,
-                        deepScrollCount = 1,
-                        usageMinutes = 0,
-                        sessions = 0,
-                        isSynced = false
-                    )
-                )
-
+            if (dao.getStatsForDate(date) == null) {
+                dao.insert(ScrollDailyStats(date = date, deepScrollCount = 1, isSynced = false))
             } else {
-
-                dao.insert(
-                    stats.copy(
-                        deepScrollCount = stats.deepScrollCount + 1,
-                        isSynced = false
-                    )
-                )
+                dao.incrementDeepScrollCount(date)
+                dao.markAsDirty(date)
             }
+            Log.d("DB_WRITE", "Deep scroll incremented for $date")
         }
     }
 
-    /* ---------------- HEATMAP DATA (365 DAYS) ---------------- */
-
-    suspend fun getLastYearStats(): List<ScrollDailyStats> {
-
-        val startDate = LocalDate
-            .now()
-            .minusDays(365)
-            .toString()
-
-        return withContext(Dispatchers.IO) {
-            dao.getStatsFrom(startDate)
+    suspend fun addSessionTime(durationMs: Long) {
+        val minutes = (durationMs / 60_000L).toInt().coerceAtLeast(1)
+        val date = today()
+        withContext(Dispatchers.IO) {
+            if (dao.getStatsForDate(date) == null) {
+                dao.insert(ScrollDailyStats(date = date, usageMinutes = minutes, isSynced = false))
+            } else {
+                dao.addUsageMinutes(date, minutes)
+                dao.markAsDirty(date)
+            }
+            Log.d("DB_WRITE", "Added $minutes min for $date")
         }
     }
 
-    /* ---------------- UNSYNCED DATA ---------------- */
-
-    suspend fun getUnsyncedStats(): List<ScrollDailyStats> {
-        return withContext(Dispatchers.IO) {
-            dao.getUnsyncedStats()
+    suspend fun incrementSession() {
+        val date = today()
+        withContext(Dispatchers.IO) {
+            if (dao.getStatsForDate(date) == null) {
+                dao.insert(ScrollDailyStats(date = date, sessions = 1, isSynced = false))
+            } else {
+                dao.incrementSessions(date)
+                dao.markAsDirty(date)
+            }
+            Log.d("DB_WRITE", "Session count incremented for $date")
         }
     }
 
-    /* ---------------- MARK AS SYNCED ---------------- */
+    /* ---------------- SYNC ---------------- */
+    suspend fun getUnsyncedStats(): List<ScrollDailyStats> = withContext(Dispatchers.IO) {
+        dao.getUnsyncedStats()
+    }
 
     suspend fun markSynced(stats: List<ScrollDailyStats>) {
-
         val dates = stats.map { it.date }
-
         withContext(Dispatchers.IO) {
             dao.markSynced(dates)
         }
     }
 
-    /* ---------------- DTO MAPPER ---------------- */
-
-    fun mapToDto(stats: List<ScrollDailyStats>): List<StatDto> {
-        return stats.map {
-            StatDto(
-                date = it.date,
-                reelsViewed = it.reelsViewed,
-                deepScrollCount = it.deepScrollCount,
-                usageMinutes = it.usageMinutes,
-                sessions = it.sessions
-            )
-        }
-    }
-
-    suspend fun addSessionTime(durationMs: Long) {
-
-        val minutes = (durationMs / 60_000L).toInt().coerceAtLeast(1)
-        val date = LocalDate.now().toString()
-        val stats = dao.getStatsForDate(date)
-
-        if (stats == null) {
-            dao.insert(
-                ScrollDailyStats(
-                    date = date,
-                    usageMinutes = minutes,
-                    isSynced = false
-                )
-            )
-        } else {
-            dao.insert(
-                stats.copy(
-                    usageMinutes = stats.usageMinutes + minutes,
-                    isSynced = false
-                )
-            )
-        }
+    fun mapToDto(stats: List<ScrollDailyStats>): List<StatDto> = stats.map {
+        StatDto(
+            date = it.date,
+            reelsViewed = it.reelsViewed,
+            deepScrollCount = it.deepScrollCount,
+            usageMinutes = it.usageMinutes,
+            sessions = it.sessions
+        )
     }
 }
