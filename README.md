@@ -1,4 +1,4 @@
-🌱 Forge – Inner Garden
+Unscroll
 
 A Digital Wellbeing & Doomscroll Recovery App
 
@@ -233,13 +233,7 @@ Database| MongoDB
 - 📊 Advanced analytics dashboard
 - 🔒 Privacy-first local ML models
 
----
 
-🧑‍💻 Author
-
-Built as part of a behavioral AI + digital wellbeing system project.
-
----
 
 📄 License
 
