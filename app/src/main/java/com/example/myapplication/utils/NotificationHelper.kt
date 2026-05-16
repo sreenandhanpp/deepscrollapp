@@ -72,6 +72,27 @@ object NotificationHelper {
         manager.notify(System.currentTimeMillis().toInt(), notification)
     }
 
+    fun showReelMilestoneNotification(
+        context: Context,
+        reelsScrolled: Int
+    ) {
+        if (!hasPermission(context)) return
+
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        ensureChannel(manager)
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_logo_photoroom)
+            .setContentTitle("Reels check-in 🎯")
+            .setContentText("You’ve scrolled $reelsScrolled reels.")
+            .setContentIntent(dashboardIntent(context))
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+
+        manager.notify(2000 + (reelsScrolled % 1000), notification)
+    }
+
     /**
      * Updated method for unconscious scrolling detection
      * Shows different messages based on the detected unconscious type
