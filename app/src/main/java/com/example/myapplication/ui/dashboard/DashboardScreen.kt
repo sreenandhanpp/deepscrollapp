@@ -1,195 +1,61 @@
 package com.example.myapplication.ui.dashboard
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.myapplication.ui.heatmap.MonthlyHeatmap
 import kotlinx.coroutines.launch
-import androidx.compose.material.icons.filled.Notifications
-
 
 @Composable
-fun DashboardScreen(
-    viewModel: MainViewModel,
-    onOpenNotificationSettings: () -> Unit,
-)
-{
+fun DashboardScreen(viewModel: MainViewModel) {
+    val context = LocalContext.current
+    val today = viewModel.today.collectAsStateWithLifecycle().value
+    val childId = viewModel.childId.collectAsStateWithLifecycle().value
+    val snack = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
+    LaunchedEffect(Unit) { viewModel.registerIfNeeded() }
 
-    val usageMinutesToday by viewModel.totalUsageMinutesToday.collectAsState()
-    val reelsScrolledCount by viewModel.reelsScrolledCount.collectAsState()
-    val notifyAfterMinutes by viewModel.notifyAfterMinutes.collectAsState()
+    val reelsAnimated = animateIntAsState(today.reelsViewed, label = "reels")
 
-    // Local input state
-    var tempInput by remember { mutableStateOf(notifyAfterMinutes.toString()) }
-    val focusManager = LocalFocusManager.current
-    var showSavedMessage by remember { mutableStateOf(false) }
-    var savedValue by remember { mutableStateOf("") } // To show the newly saved value
-
-    val coroutineScope = rememberCoroutineScope()
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+    Column(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(20.dp)
-        ) {
-            Spacer(modifier = Modifier.height(24.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Hello 👋",
-                    style = MaterialTheme.typography.headlineMedium
-                )
-
-                IconButton(
-                    onClick = {
-                        onOpenNotificationSettings()
-                    }
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Notifications,
-                        contentDescription = "Notification settings"
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // 🌿 Unscroll card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
-            ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Text(
-                        text = "Unscroll",
-                        style = MaterialTheme.typography.titleLarge
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Quiet awareness while you scroll",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            // ⏱ Gentle reminder
-            Text(
-                text = "Gentle reminder",
-                style = MaterialTheme.typography.titleMedium
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = tempInput,
-                onValueChange = { newValue ->
-                    // Only allow positive integers
-                    if (newValue.isEmpty() || newValue.all { it.isDigit() }) {
-                        tempInput = newValue
-                    }
-                },
-                label = { Text("Remind me after (minutes)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // ✅ Set button
-            Button(
-                onClick = {
-                    tempInput.toIntOrNull()?.let { minutes ->
-                        if (minutes > 0) {
-                            viewModel.updateNotifyAfterMinutes(minutes)
-                            savedValue = minutes.toString() // Remember what we just saved
-                            showSavedMessage = true
-
-                            coroutineScope.launch {
-                                delay(3000) // Hide message after 3 seconds
-                                showSavedMessage = false
-                            }
-
-                            focusManager.clearFocus()
-                            tempInput = minutes.toString() // Keep the field showing the saved value
-                        }
-                    }
-                },
-                modifier = Modifier.align(Alignment.End)
-            ) {
-                Text("Set")
-            }
-
-            if (showSavedMessage) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Saved! We’ll remind you every $savedValue minutes.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            // 📊 Reflection
-            Text(
-                text = "Today’s reflection",
-                style = MaterialTheme.typography.titleMedium
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                StatCard(
-                    title = "Time on Instagram",
-                    value = if (usageMinutesToday == 0L) "—" else {
-                        val hours = usageMinutesToday / 60
-                        val mins = usageMinutesToday % 60
-                        if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
-                    },
-                    icon = Icons.Default.Timer,
-                    modifier = Modifier.weight(1f)
-                )
-                StatCard(
-                    title = "Reels scrolled",
-                    value = reelsScrolledCount.toString(),
-                    icon = Icons.Default.FlashOn,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            Text(
-                text = "Unscroll doesn’t block — it helps you notice.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            )
-            Spacer(modifier = Modifier.height(16.dp))
+        Text("DeepScroll Dashboard", style = MaterialTheme.typography.headlineSmall)
+        Text("Child ID: $childId")
+        Button(onClick = { copyId(context, childId); scope.launch { snack.showSnackbar("Child ID copied") } }) {
+            Text("Copy Child ID")
         }
+        Text("Minutes today: ${today.usageMinutes}")
+        Text("Reels viewed: ${reelsAnimated.value}")
+        Text("DeepScroll count: ${today.deepScrollCount}")
+        Text("Sessions: ${today.sessions}")
+        Text("Intensity: ${"%.2f".format(today.intensityScore)}")
+        MonthlyHeatmap(values = List(35) { if (it % 4 == 0) today.deepScrollCount else today.reelsViewed / 10 }, onTap = {})
+        SnackbarHost(hostState = snack)
     }
+}
+
+private fun copyId(context: Context, value: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText("Child ID", value))
 }
