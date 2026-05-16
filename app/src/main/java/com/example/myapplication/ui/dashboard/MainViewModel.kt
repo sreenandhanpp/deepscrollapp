@@ -3,175 +3,27 @@ package com.example.myapplication.ui.dashboard
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.myapplication.data.*
-import kotlinx.coroutines.flow.MutableStateFlow
+import com.example.myapplication.app.AppContainer
+import com.example.myapplication.data.local.DailyStatEntity
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-class MainViewModel(
-    application: Application
-) : AndroidViewModel(application) {
+class MainViewModel(app: Application) : AndroidViewModel(app) {
+    private val container = AppContainer(app)
 
-    /* ---------------- Onboarding ---------------- */
-    val upgradeSeen =
-        UpgradeStore
-            .upgradeSeenFlow(application)
-            .stateIn(
-                scope = viewModelScope,
-                started = SharingStarted.WhileSubscribed(5_000),
-                initialValue = false
-            )
+    val childId: StateFlow<String> = container.registrationRepository.childIdFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
-    private val _showUpgrade = MutableStateFlow(false)
-    val showUpgrade = _showUpgrade.asStateFlow()
+    val stats: StateFlow<List<DailyStatEntity>> = container.localStatsDataSource.observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private var upgradeShownInMemory = false
+    val today = stats.map { it.firstOrNull() ?: DailyStatEntity("", 0, 0, 0, 0, 0, 0f) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DailyStatEntity("", 0, 0, 0, 0, 0, 0f))
 
-    fun showUpgradeOnce() {
-        if (!upgradeShownInMemory) {
-            upgradeShownInMemory = true
-            _showUpgrade.value = true
-        }
-    }
-
-
-    fun closeUpgrade() {
-        _showUpgrade.value = false
-
-        viewModelScope.launch {
-            UpgradeStore.markUpgradeSeen(getApplication())
-        }
-    }
-
-
-
-
-    val onboardingCompleted =
-        OnboardingStore
-            .onboardingCompletedFlow(application)
-            .stateIn(
-                scope = viewModelScope,
-                started = SharingStarted.WhileSubscribed(5_000),
-                initialValue = false
-            )
-
-    fun completeOnboarding() {
-        viewModelScope.launch {
-            OnboardingStore.setOnboardingCompleted(getApplication())
-        }
-    }
-
-    /* ---------------- Meaningful reflection data ---------------- */
-
-    val totalUsageMinutesToday =
-        UsageDataStore
-            .totalTimeMinutesFlow(application)
-            .stateIn(
-                scope = viewModelScope,
-                started = SharingStarted.WhileSubscribed(5_000),
-                initialValue = 0L
-            )
-
-    val deepScrollCount =
-        UsageDataStore
-            .deepScrollCountFlow(application)
-            .stateIn(
-                scope = viewModelScope,
-                started = SharingStarted.WhileSubscribed(5_000),
-                initialValue = 0
-            )
-
-    val reelsScrolledCount =
-        UsageDataStore
-            .reelsScrolledCountFlow(application)
-            .stateIn(
-                scope = viewModelScope,
-                started = SharingStarted.WhileSubscribed(5_000),
-                initialValue = 0
-            )
-
-    /* ---------------- Notification timing preference ---------------- */
-
-    val notifyAfterMinutes =
-        NotificationSettingsStore
-            .notifyAfterMinutesFlow(application)
-            .stateIn(
-                scope = viewModelScope,
-                started = SharingStarted.WhileSubscribed(5_000),
-                initialValue = 10
-            )
-
-    fun updateNotifyAfterMinutes(minutes: Int) {
-        viewModelScope.launch {
-            NotificationSettingsStore.setNotifyAfterMinutes(
-                getApplication(),
-                minutes
-            )
-        }
-    }
-
-    /* =========================================================
-       🔔 Notification Settings Screen Navigation
-       ========================================================= */
-
-    private val _showNotificationSettings = MutableStateFlow(false)
-    val showNotificationSettings: StateFlow<Boolean> =
-        _showNotificationSettings.asStateFlow()
-
-    fun openNotificationSettings() {
-        _showNotificationSettings.value = true
-    }
-
-    fun closeNotificationSettings() {
-        _showNotificationSettings.value = false
-    }
-
-    /* =========================================================
-       🎛 Notification Toggles (UI-ready)
-       ========================================================= */
-
-    private val _timeReminderEnabled = MutableStateFlow(true)
-    val timeReminderEnabled = _timeReminderEnabled.asStateFlow()
-
-    private val _rapidSwipeEnabled = MutableStateFlow(true)
-    val rapidSwipeEnabled = _rapidSwipeEnabled.asStateFlow()
-
-    private val _zoneOutEnabled = MutableStateFlow(true)
-    val zoneOutEnabled = _zoneOutEnabled.asStateFlow()
-
-    private val _roboticEnabled = MutableStateFlow(true)
-    val roboticEnabled = _roboticEnabled.asStateFlow()
-
-    private val _deepDiveEnabled = MutableStateFlow(true)
-    val deepDiveEnabled = _deepDiveEnabled.asStateFlow()
-
-    private val _mindlessEnabled = MutableStateFlow(true)
-    val mindlessEnabled = _mindlessEnabled.asStateFlow()
-
-    fun setTimeReminderEnabled(value: Boolean) {
-        _timeReminderEnabled.value = value
-    }
-
-    fun setRapidSwipeEnabled(value: Boolean) {
-        _rapidSwipeEnabled.value = value
-    }
-
-    fun setZoneOutEnabled(value: Boolean) {
-        _zoneOutEnabled.value = value
-    }
-
-    fun setRoboticEnabled(value: Boolean) {
-        _roboticEnabled.value = value
-    }
-
-    fun setDeepDiveEnabled(value: Boolean) {
-        _deepDiveEnabled.value = value
-    }
-
-    fun setMindlessEnabled(value: Boolean) {
-        _mindlessEnabled.value = value
+    fun registerIfNeeded(label: String = "My Kid") = viewModelScope.launch {
+        container.registrationRepository.ensureRegistered(label)
     }
 }
