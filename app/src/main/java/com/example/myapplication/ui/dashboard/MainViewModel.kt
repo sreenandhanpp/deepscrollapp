@@ -84,6 +84,15 @@ class MainViewModel(
                 initialValue = 0
             )
 
+    val reelsScrolledCount =
+        UsageDataStore
+            .reelsScrolledCountFlow(application)
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5_000),
+                initialValue = 0
+            )
+
     /* ---------------- Notification timing preference ---------------- */
 
     val notifyAfterMinutes =

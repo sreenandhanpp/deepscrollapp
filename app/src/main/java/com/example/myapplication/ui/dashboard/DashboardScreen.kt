@@ -26,7 +26,7 @@ fun DashboardScreen(
 
 
     val usageMinutesToday by viewModel.totalUsageMinutesToday.collectAsState()
-    val deepScrollCount by viewModel.deepScrollCount.collectAsState()
+    val reelsScrolledCount by viewModel.reelsScrolledCount.collectAsState()
     val notifyAfterMinutes by viewModel.notifyAfterMinutes.collectAsState()
 
     // Local input state
@@ -174,8 +174,8 @@ fun DashboardScreen(
                     modifier = Modifier.weight(1f)
                 )
                 StatCard(
-                    title = "Deep scroll moments",
-                    value = deepScrollCount.toString(),
+                    title = "Reels scrolled",
+                    value = reelsScrolledCount.toString(),
                     icon = Icons.Default.FlashOn,
                     modifier = Modifier.weight(1f)
                 )
