@@ -2,13 +2,10 @@ package com.example.myapplication.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val WarmCream = Color(0xFFFFF9F2)
-val SoftOrange = Color(0xFFFEA886)
-val SageGreen = Color(0xFFC8E6C9)
-val DeepCharcoal = Color(0xFF1C1B1F)
-val MutedSlate = Color(0xFF4A4A4A)
-
-// Dark Mode Palette (Warm/Soft)
-val DarkBackground = Color(0xFF1A1918)
-val DarkSurface = Color(0xFF2D2B2A)
-val MutedAmber = Color(0xFFFFCC80)
+val PrimaryBlue = Color(0xFF64B5F6)
+val AccentGreen = Color(0xFF81C784)
+val DeepScrollOrange = Color(0xFFFF8A65)
+val BackgroundDark = Color(0xFF0F0F0F)
+val SurfaceDark = Color(0xFF1A1A1A)
+val TextGray = Color(0xFF9E9E9E)
+val TextWhite = Color(0xFFFFFFFF)

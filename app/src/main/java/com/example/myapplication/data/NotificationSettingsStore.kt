@@ -11,17 +11,17 @@ private val Context.notificationSettings by preferencesDataStore("notification_s
 
 object NotificationSettingsStore {
 
-    private val NOTIFY_AFTER_MINUTES =
-        intPreferencesKey("notify_after_minutes")
+    private val NOTIFY_AFTER_REELS =
+        intPreferencesKey("notify_after_reels")
 
-    fun notifyAfterMinutesFlow(context: Context): Flow<Int> =
+    fun notifyAfterReelsFlow(context: Context): Flow<Int> =
         context.notificationSettings.data.map {
-            it[NOTIFY_AFTER_MINUTES] ?: 10   // 🌿 default = 10 min
+            it[NOTIFY_AFTER_REELS] ?: 50   // 🌿 default = 50 reels
         }
 
-    suspend fun setNotifyAfterMinutes(context: Context, minutes: Int) {
+    suspend fun setNotifyAfterReels(context: Context, reels: Int) {
         context.notificationSettings.edit {
-            it[NOTIFY_AFTER_MINUTES] = minutes.coerceAtLeast(1)
+            it[NOTIFY_AFTER_REELS] = reels.coerceAtLeast(1)
         }
     }
 }
