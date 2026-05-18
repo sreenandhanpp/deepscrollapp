@@ -14,7 +14,7 @@ fun NotificationSettingsScreen(
     viewModel: MainViewModel,
     onBack: () -> Unit
 ) {
-    // 🔗 ViewModel states
+    // 🔗 ViewModel state
     val timeReminder by viewModel.timeReminderEnabled.collectAsState()
     val rapidSwipe by viewModel.rapidSwipeEnabled.collectAsState()
     val zoneOut by viewModel.zoneOutEnabled.collectAsState()
@@ -354,8 +354,8 @@ fun NotificationSettingsScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         NotificationToggle(
-            title = "Gentle time reminder ⏱️",
-            description = "Based on the minutes you set.",
+            title = "Gentle count reminder 🎯",
+            description = "Based on the number of reels you set.",
             checked = timeReminder,
             onCheckedChange = viewModel::setTimeReminderEnabled
         )
