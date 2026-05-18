@@ -9,10 +9,21 @@ import androidx.activity.compose.setContent
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import com.example.myapplication.data.OnboardingStore
 import com.example.myapplication.sync.SyncScheduler
 import com.example.myapplication.ui.dashboard.DashboardScreen
 import com.example.myapplication.ui.dashboard.MainViewModel
+import com.example.myapplication.ui.onboarding.OnboardingHost
 import com.example.myapplication.ui.theme.AuraTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -22,8 +33,28 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             AuraTheme {
-                val vm: MainViewModel = viewModel()
-                DashboardScreen(vm)
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    val context = LocalContext.current
+                    val scope = rememberCoroutineScope()
+                    val onboardingCompleted by OnboardingStore.onboardingCompletedFlow(context)
+                        .collectAsState(initial = null)
+
+                    if (onboardingCompleted == null) {
+                        // Still loading from DataStore
+                    } else if (!onboardingCompleted!!) {
+                        OnboardingHost(onFinish = {
+                            scope.launch {
+                                OnboardingStore.setOnboardingCompleted(context)
+                            }
+                        })
+                    } else {
+                        val vm: MainViewModel = viewModel()
+                        DashboardScreen(vm)
+                    }
+                }
             }
         }
     }

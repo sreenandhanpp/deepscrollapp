@@ -14,7 +14,8 @@ class SyncWorker(
     override suspend fun doWork(): Result {
         val database = AppDatabase.getDatabase(applicationContext)
         val apiService = RetrofitClient.apiService
-        val registrationRepository = RegistrationRepository(applicationContext, apiService)
+        val deepScrollApi = RetrofitClient.deepScrollApi
+        val registrationRepository = RegistrationRepository(deepScrollApi, applicationContext)
         val statsRepository = StatsRepository(database.statsDao(), apiService, registrationRepository)
 
         val success = statsRepository.syncWithBackend()

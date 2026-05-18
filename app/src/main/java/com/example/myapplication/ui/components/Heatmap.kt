@@ -13,13 +13,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.myapplication.data.local.entity.DailyStatsEntity
+import com.example.myapplication.data.local.DailyStatEntity
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 @Composable
 fun Heatmap(
-    stats: List<DailyStatsEntity>,
+    stats: List<DailyStatEntity>,
     modifier: Modifier = Modifier
 ) {
     val statsMap = stats.associateBy { it.date }
@@ -70,7 +70,7 @@ fun Heatmap(
     }
 }
 
-private fun calculateIntensity(stats: DailyStatsEntity): Int {
+private fun calculateIntensity(stats: DailyStatEntity): Int {
     val total = stats.reelsViewed + stats.usageMinutes
     return when {
         total == 0 -> 0

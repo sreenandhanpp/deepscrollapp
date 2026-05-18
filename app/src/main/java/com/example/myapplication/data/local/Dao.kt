@@ -1,21 +1,37 @@
 package com.example.myapplication.data.local
 
-import androidx.room.Dao
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
-import androidx.room.Query
+import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface StatsDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(entity: DailyStatEntity)
-
-    @Query("SELECT * FROM daily_stats WHERE date = :date LIMIT 1")
-    suspend fun getByDate(date: String): DailyStatEntity?
-
     @Query("SELECT * FROM daily_stats ORDER BY date DESC")
     fun observeAll(): Flow<List<DailyStatEntity>>
+
+    @Query("SELECT * FROM daily_stats WHERE date = :date")
+    suspend fun getByDate(date: String): DailyStatEntity?
+
+    @Query("SELECT * FROM daily_stats WHERE date = :date")
+    fun observeByDate(date: String): Flow<DailyStatEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(stat: DailyStatEntity)
+
+    @Query("SELECT * FROM daily_stats")
+    suspend fun getAllStatsSync(): List<DailyStatEntity>
+
+    // Increment methods
+    @Query("UPDATE daily_stats SET reelsViewed = reelsViewed + 1 WHERE date = :date")
+    suspend fun incrementReels(date: String)
+
+    @Query("UPDATE daily_stats SET deepScrollCount = deepScrollCount + 1 WHERE date = :date")
+    suspend fun incrementDeepScroll(date: String)
+
+    @Query("UPDATE daily_stats SET usageMinutes = usageMinutes + :minutes WHERE date = :date")
+    suspend fun addMinutes(date: String, minutes: Int)
+
+    @Query("UPDATE daily_stats SET sessions = sessions + 1 WHERE date = :date")
+    suspend fun incrementSessions(date: String)
 }
 
 @Dao

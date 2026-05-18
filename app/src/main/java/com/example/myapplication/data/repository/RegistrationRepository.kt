@@ -9,6 +9,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.example.myapplication.data.remote.DeepScrollApi
 import com.example.myapplication.data.remote.RegisterRequest
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlin.random.Random
 
@@ -23,6 +24,11 @@ class RegistrationRepository(
     private val registeredKey = booleanPreferencesKey("registered")
 
     val childIdFlow: Flow<String> = context.registrationStore.data.map { it[childIdKey] ?: "" }
+    val deviceIdFlow: Flow<String> = context.registrationStore.data.map { it[deviceIdKey] ?: "" }
+
+    suspend fun registerDeviceIfNeeded(label: String = "Unknown Device"): Result<String> {
+        return ensureRegistered(label)
+    }
 
     suspend fun ensureRegistered(label: String): Result<String> {
         val current = context.registrationStore.data.map { it }.firstSnapshot()
@@ -49,4 +55,4 @@ class RegistrationRepository(
     }
 }
 
-private suspend fun <T> Flow<T>.firstSnapshot(): T = kotlinx.coroutines.flow.first(this)
+private suspend fun <T> Flow<T>.firstSnapshot(): T = this.first()

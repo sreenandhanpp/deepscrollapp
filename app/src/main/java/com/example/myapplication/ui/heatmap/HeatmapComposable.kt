@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -15,16 +16,19 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun MonthlyHeatmap(values: List<Int>, onTap: (Int) -> Unit) {
+    val primary = MaterialTheme.colorScheme.primary
+    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         values.chunked(7).forEach { week ->
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 week.forEachIndexed { index, value ->
                     val color = when {
-                        value >= 20 -> Color(0xFF4ADE80)
-                        value >= 10 -> Color(0xFF22C55E)
-                        value >= 5 -> Color(0xFF15803D)
-                        value > 0 -> Color(0xFF14532D)
-                        else -> Color(0xFF1F2937)
+                        value >= 20 -> primary
+                        value >= 10 -> primary.copy(alpha = 0.7f)
+                        value >= 5 -> primary.copy(alpha = 0.4f)
+                        value > 0 -> primary.copy(alpha = 0.2f)
+                        else -> surfaceVariant
                     }
                     androidx.compose.foundation.layout.Box(
                         modifier = Modifier
@@ -36,5 +40,5 @@ fun MonthlyHeatmap(values: List<Int>, onTap: (Int) -> Unit) {
             }
         }
     }
-    Text("Tap cells for day detail")
+    Text("Tap cells for day detail", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }

@@ -6,7 +6,7 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 import java.util.concurrent.TimeUnit
 
 object NetworkModule {
-    private const val BASE_URL = "https://your-api-host/"
+    private const val BASE_URL = "http://localhost:5000/"
 
     fun createApi(): DeepScrollApi {
         val client = OkHttpClient.Builder()

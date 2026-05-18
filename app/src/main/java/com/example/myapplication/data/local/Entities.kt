@@ -5,15 +5,17 @@ import androidx.room.PrimaryKey
 
 @Entity(tableName = "daily_stats")
 data class DailyStatEntity(
-    @PrimaryKey val date: String,
-    val reelsViewed: Int,
-    val deepScrollCount: Int,
-    val usageMinutes: Int,
-    val sessions: Int,
-    val deepScrollStreak: Int,
-    val intensityScore: Float
+    @PrimaryKey
+    val date: String, // Format: YYYY-MM-DD
+    val usageMinutes: Int = 0,
+    val reelsViewed: Int = 0,
+    val deepScrollCount: Int = 0,
+    val sessions: Int = 0,
+    val rapidScrollCount: Int = 0,
+    val mindlessMinutes: Float = 0f,
+    val deepScrollStreak: Int = 0,
+    val intensityScore: Float = 0f
 )
-
 @Entity(tableName = "sync_queue")
 data class SyncQueueEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

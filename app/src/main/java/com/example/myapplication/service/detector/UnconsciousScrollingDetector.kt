@@ -41,9 +41,9 @@ class UnconsciousScrollingDetector(
 
     /* ---------------- NEW SAFETY GUARDS ---------------- */
 
-    private val WARMUP_TIME_MS = 60_000L
-    private val MIN_SCROLL_EVENTS = 8
-    private val MIN_UNCONSCIOUS_DURATION_MS = 20_000L
+    private val WARMUP_TIME_MS = 10_000L
+    private val MIN_SCROLL_EVENTS = 3
+    private val MIN_UNCONSCIOUS_DURATION_MS = 5_000L
 
 
     private var unconsciousStartTime = 0L

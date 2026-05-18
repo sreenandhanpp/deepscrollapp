@@ -5,9 +5,9 @@ import retrofit2.http.Body
 import retrofit2.http.POST
 
 interface DeepScrollApi {
-    @POST("register")
+    @POST("/auth/register")
     suspend fun register(@Body body: RegisterRequest): Response<RegisterResponse>
 
-    @POST("sync")
+    @POST("/sync")
     suspend fun sync(@Body body: SyncRequest): Response<Unit>
 }
