@@ -1,7 +1,6 @@
 package com.example.myapplication.ui.dashboard
 
 import android.app.Application
-import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.myapplication.app.AppContainer
@@ -9,122 +8,93 @@ import com.example.myapplication.data.NotificationSettingsStore
 import com.example.myapplication.data.local.DailyStatEntity
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import java.time.LocalDate
 import java.text.SimpleDateFormat
 import java.util.*
 
-class MainViewModel(app: Application) : AndroidViewModel(app) {
-    private val container = AppContainer(app)
-    private val context = app.applicationContext
-    private val TAG = "MainViewModel"
+class MainViewModel(
+    application: Application
+) : AndroidViewModel(application) {
 
-    // 🔔 Notification Settings State
-    val timeReminderEnabled = NotificationSettingsStore.timeReminderEnabled(context)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+    private val container = AppContainer(application)
+    private val statsRepository = container.statsRepository
+    private val registrationRepository = container.registrationRepository
 
-    val rapidSwipeEnabled = NotificationSettingsStore.rapidSwipeEnabled(context)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
-
-    val zoneOutEnabled = NotificationSettingsStore.zoneOutEnabled(context)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
-
-    val roboticEnabled = NotificationSettingsStore.roboticEnabled(context)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
-
-    val deepDiveEnabled = NotificationSettingsStore.deepDiveEnabled(context)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
-
-    val mindlessEnabled = NotificationSettingsStore.mindlessEnabled(context)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
-
-    val notifyAfterReels = NotificationSettingsStore.notifyAfterReelsFlow(context)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 50)
-
-    // ⚙️ Actions
-    fun setNotifyAfterReels(reels: Int) = viewModelScope.launch {
-        NotificationSettingsStore.setNotifyAfterReels(context, reels)
-    }
-
-    fun setTimeReminderEnabled(enabled: Boolean) = viewModelScope.launch {
-        NotificationSettingsStore.setTimeReminderEnabled(context, enabled)
-    }
-
-    fun setRapidSwipeEnabled(enabled: Boolean) = viewModelScope.launch {
-        NotificationSettingsStore.setRapidSwipeEnabled(context, enabled)
-    }
-
-    fun setZoneOutEnabled(enabled: Boolean) = viewModelScope.launch {
-        NotificationSettingsStore.setZoneOutEnabled(context, enabled)
-    }
-
-    fun setRoboticEnabled(enabled: Boolean) = viewModelScope.launch {
-        NotificationSettingsStore.setRoboticEnabled(context, enabled)
-    }
-
-    fun setDeepDiveEnabled(enabled: Boolean) = viewModelScope.launch {
-        NotificationSettingsStore.setDeepDiveEnabled(context, enabled)
-    }
-
-    fun setMindlessEnabled(enabled: Boolean) = viewModelScope.launch {
-        NotificationSettingsStore.setMindlessEnabled(context, enabled)
-    }
-
-    val childId: StateFlow<String> = container.registrationRepository.childIdFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
-
-    // Get all stats
-    val stats: StateFlow<List<DailyStatEntity>> = container.localStatsDataSource.observeAll()
+    /* ---------------- Stats ---------------- */
+    
+    val allStats: StateFlow<List<DailyStatEntity>> = statsRepository.getAllStats()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Get today's stats - FIXED with proper date format
-    val today = stats.map { statsList ->
-        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-        val todayDate = dateFormat.format(Date())
-
-        Log.d(TAG, "Looking for stats for date: $todayDate")
-        Log.d(TAG, "Available stats: ${statsList.map { it.date }}")
-
-        val todayStats = statsList.find { it.date == todayDate }
-
-        if (todayStats == null) {
-            Log.d(TAG, "No stats found for today, creating default")
-            DailyStatEntity(
-                date = todayDate,
-                usageMinutes = 0,
-                reelsViewed = 0,
-                deepScrollCount = 0,
-                sessions = 0,
-                rapidScrollCount = 0,
-                mindlessMinutes = 0f
-            )
-        } else {
-            Log.d(TAG, "Found stats: ${todayStats.reelsViewed} reels, ${todayStats.usageMinutes} mins")
-            todayStats
-        }
+    val today: StateFlow<DailyStatEntity> = allStats.map { list ->
+        val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        list.find { it.date == todayStr } ?: DailyStatEntity(date = todayStr)
     }.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5000),
-        DailyStatEntity(
-            date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()),
-            usageMinutes = 0,
-            reelsViewed = 0,
-            deepScrollCount = 0,
-            sessions = 0,
-            rapidScrollCount = 0,
-            mindlessMinutes = 0f
-        )
+        viewModelScope, 
+        SharingStarted.WhileSubscribed(5000), 
+        DailyStatEntity(date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()))
     )
 
-    fun registerIfNeeded(label: String = "My Kid") = viewModelScope.launch {
-        container.registrationRepository.ensureRegistered(label)
-    }
+    /* ---------------- Registration ---------------- */
 
-    // Debug function to check stats
-    fun debugPrintStats() = viewModelScope.launch {
-        val allStats = stats.value
-        Log.d(TAG, "=== CURRENT STATS ===")
-        allStats.forEach { stat ->
-            Log.d(TAG, "Date: ${stat.date}, Reels: ${stat.reelsViewed}, DeepScroll: ${stat.deepScrollCount}, Minutes: ${stat.usageMinutes}, Sessions: ${stat.sessions}")
+    val childId: StateFlow<String> = registrationRepository.childIdFlow
+        .map { it ?: "Not Registered" }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "Loading...")
+
+    fun registerIfNeeded() {
+        viewModelScope.launch {
+            registrationRepository.registerDeviceIfNeeded()
         }
     }
+
+    /* ---------------- Notification timing preference ---------------- */
+
+    val notifyAfterReels =
+        NotificationSettingsStore
+            .notifyAfterReelsFlow(application)
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5_000),
+                initialValue = 50
+            )
+
+    fun setNotifyAfterReels(reels: Int) {
+        viewModelScope.launch {
+            NotificationSettingsStore.setNotifyAfterReels(getApplication(), reels)
+        }
+    }
+
+    /* =========================================================
+       🔔 Notification Settings logic
+       ========================================================= */
+    private val _showNotificationSettings = MutableStateFlow(false)
+    val showNotificationSettings: StateFlow<Boolean> = _showNotificationSettings.asStateFlow()
+
+    fun openNotificationSettings() { _showNotificationSettings.value = true }
+    fun closeNotificationSettings() { _showNotificationSettings.value = false }
+
+    /* =========================================================
+       🎛 Notification Toggles
+       ========================================================= */
+    private val _timeReminderEnabled = MutableStateFlow(true)
+    val timeReminderEnabled = _timeReminderEnabled.asStateFlow()
+    fun setTimeReminderEnabled(value: Boolean) { _timeReminderEnabled.value = value }
+
+    private val _rapidSwipeEnabled = MutableStateFlow(true)
+    val rapidSwipeEnabled = _rapidSwipeEnabled.asStateFlow()
+    fun setRapidSwipeEnabled(value: Boolean) { _rapidSwipeEnabled.value = value }
+
+    private val _zoneOutEnabled = MutableStateFlow(true)
+    val zoneOutEnabled = _zoneOutEnabled.asStateFlow()
+    fun setZoneOutEnabled(value: Boolean) { _zoneOutEnabled.value = value }
+
+    private val _roboticEnabled = MutableStateFlow(true)
+    val roboticEnabled = _roboticEnabled.asStateFlow()
+    fun setRoboticEnabled(value: Boolean) { _roboticEnabled.value = value }
+
+    private val _deepDiveEnabled = MutableStateFlow(true)
+    val deepDiveEnabled = _deepDiveEnabled.asStateFlow()
+    fun setDeepDiveEnabled(value: Boolean) { _deepDiveEnabled.value = value }
+
+    private val _mindlessEnabled = MutableStateFlow(true)
+    val mindlessEnabled = _mindlessEnabled.asStateFlow()
+    fun setMindlessEnabled(value: Boolean) { _mindlessEnabled.value = value }
 }

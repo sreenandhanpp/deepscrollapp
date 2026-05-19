@@ -16,6 +16,7 @@ data class DailyStatEntity(
     val deepScrollStreak: Int = 0,
     val intensityScore: Float = 0f
 )
+
 @Entity(tableName = "sync_queue")
 data class SyncQueueEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
