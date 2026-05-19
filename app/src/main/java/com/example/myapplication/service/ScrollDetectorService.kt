@@ -12,11 +12,21 @@ import com.example.myapplication.data.NotificationSettingsStore
 import com.example.myapplication.data.ReelSettingsStore
 import com.example.myapplication.data.local.AppDatabase
 import com.example.myapplication.data.remote.RetrofitClient
-import com.example.myapplication.data.repository.*
+import com.example.myapplication.data.repository.RegistrationRepository
+import com.example.myapplication.data.repository.StatsRepository
+import com.example.myapplication.data.repository.SyncManager
 import com.example.myapplication.service.detector.UnconsciousScrollingDetector
 import com.example.myapplication.service.detector.UnconsciousType
 import com.example.myapplication.utils.NotificationHelper
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.Runnable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 class ScrollDetectorService : AccessibilityService() {
@@ -31,7 +41,7 @@ class ScrollDetectorService : AccessibilityService() {
     private var syncJob: Job? = null
     private var lastWatchStartTime = 0L
     private var currentWatchingReelIndex = -1
-    private val MIN_WATCH_TIME_MS = 500L // Reduced to 500ms for easier testing
+    private val MIN_WATCH_TIME_MS = 500L
 
     private var deepScrollRecordedThisSession = false
     private var sessionStartTime = 0L
@@ -39,15 +49,19 @@ class ScrollDetectorService : AccessibilityService() {
     private var accumulatedSessionTime = 0L
     private var lastPersistedMs = 0L
 
-    private val SESSION_RESET_MS = 10 * 60_000L // Increased to 10 minutes
+    private val SESSION_RESET_MS = 10 * 60_000L
     private val MIN_SESSION_MS = 2_000L
 
-    private var notifyAfterReels = 1
-    private var reelNotifyInterval = 1
-    private var nextNotifyReel = 1
+    // Reel notification tracking
+    private var notifyAfterReels = 5  // Default to 5 reels
+    private var reelNotifyInterval = 5
+    private var nextNotifyReel = 5
     private var reelsInSession = 0
+    private var lastReelNotificationTime = 0L
+    private val MIN_NOTIFICATION_INTERVAL_MS =
+        30_000L // Don't notify more than once every 30 seconds
 
-    // Notification toggles — kept in sync from DataStore
+    // Notification toggles
     private var rapidSwipeNotifyEnabled = true
     private var zoneOutNotifyEnabled = true
     private var reelCountNotifyEnabled = true
@@ -66,15 +80,20 @@ class ScrollDetectorService : AccessibilityService() {
         private const val TAG = "ScrollDetector"
     }
 
-    // ─────────────────────────────────────────────────────────────
-
     override fun onServiceConnected() {
         super.onServiceConnected()
         val database = AppDatabase.getDatabase(applicationContext)
-        val apiService = RetrofitClient.apiService
         val deepScrollApi = RetrofitClient.deepScrollApi
-        registrationRepository = RegistrationRepository(deepScrollApi, applicationContext)
-        statsRepository = StatsRepository(database.statsDao(), apiService, registrationRepository)
+        
+        registrationRepository = RegistrationRepository(
+            apiService = deepScrollApi,
+            context = applicationContext
+        )
+        statsRepository = StatsRepository(
+            statsDao = database.statsDao(),
+            apiService = deepScrollApi,
+            registrationRepository = registrationRepository
+        )
         syncManager = SyncManager(applicationContext)
         unconsciousDetector = UnconsciousScrollingDetector(applicationContext)
 
@@ -83,16 +102,21 @@ class ScrollDetectorService : AccessibilityService() {
         }
         syncManager.startPeriodicSync()
 
-        // Reel interval — recalculate nextNotifyReel relative to current count on change
+        // Load reel notification settings
         serviceScope.launch {
             NotificationSettingsStore.notifyAfterReelsFlow(applicationContext).collect { newVal ->
                 val clamped = newVal.coerceAtLeast(1)
                 notifyAfterReels = clamped
                 reelNotifyInterval = clamped
+                // Reset next notification threshold when settings change
                 nextNotifyReel = reelsInSession + clamped
-                Log.d(TAG, "Notification interval updated: notifyAfterReels=$notifyAfterReels, nextNotifyReel=$nextNotifyReel")
+                Log.d(
+                    TAG,
+                    "Notification interval updated: notifyAfterReels=$notifyAfterReels, nextNotifyReel=$nextNotifyReel"
+                )
             }
         }
+
         serviceScope.launch {
             ReelSettingsStore.intervalFlow(applicationContext).collect {
                 reelNotifyInterval = it.coerceAtLeast(1)
@@ -100,7 +124,7 @@ class ScrollDetectorService : AccessibilityService() {
             }
         }
 
-        // Notification toggles
+        // Load notification toggles
         serviceScope.launch {
             NotificationSettingsStore.rapidSwipeEnabled(applicationContext).collect {
                 rapidSwipeNotifyEnabled = it
@@ -121,52 +145,49 @@ class ScrollDetectorService : AccessibilityService() {
         }
 
         Log.d(TAG, "ScrollDetectorService connected successfully")
+
+        // Test notification after delay
         handler.postDelayed({
             NotificationHelper.checkNotificationStatus(applicationContext)
-            NotificationHelper.testNotification(applicationContext)
-            Log.d(TAG, "Test notification sent - check if you see it!")
+            testReelCountNotification()
         }, 3000)
     }
-
-    // ─────────────────────────────────────────────────────────────
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val pkg = event.packageName?.toString() ?: return
 
-        // Log basic event info for debugging
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
             Log.v(TAG, "Scroll event from: $pkg | class: ${event.className}")
         }
 
         if (pkg != "com.instagram.android") {
-            // 🛑 STOP: Do not call endSession() immediately here.
-            // System events or transient notifications can have different package names.
-            // We let the SESSION_RESET_MS timeout handle session termination naturally.
             return
         }
 
         val now = System.currentTimeMillis()
         val isScrollEvent = event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED
 
-        // ── Session start ────────────────────────────────────────
+        // Session management
         if (sessionStartTime == 0L) {
             startSession(now)
         } else {
-            // Check if we need to resume or if it's been too long
             if (lastEventTime != 0L && now - lastEventTime > SESSION_RESET_MS) {
                 endSession()
                 startSession(now)
             }
         }
 
-        // ── Unconscious detection updates ──
+        // Unconscious detection
         unconsciousDetector.updateLastEventTime(now)
         unconsciousDetector.onAccessibilityEvent(event, now)
 
-        // ── Reel-specific index counting ────────────────────────
+        // Reel tracking with improved detection
         if (isReelsScroll(event)) {
             val currentIndex = event.fromIndex
-            Log.d(TAG, "Reel scroll event: index=$currentIndex, currentIdx=$currentWatchingReelIndex")
+            Log.d(
+                TAG,
+                "Reel scroll event: index=$currentIndex, currentIdx=$currentWatchingReelIndex"
+            )
 
             if (currentIndex != currentWatchingReelIndex && currentIndex != -1) {
                 val watchTime = now - lastWatchStartTime
@@ -175,14 +196,17 @@ class ScrollDetectorService : AccessibilityService() {
                 if (currentWatchingReelIndex != -1 && watchTime >= MIN_WATCH_TIME_MS) {
                     recordReelView()
                 } else if (currentWatchingReelIndex != -1) {
-                    Log.d(TAG, "Watch time too short ($watchTime < $MIN_WATCH_TIME_MS), not counting.")
+                    Log.d(
+                        TAG,
+                        "Watch time too short ($watchTime < $MIN_WATCH_TIME_MS), not counting."
+                    )
                 }
                 currentWatchingReelIndex = currentIndex
                 lastWatchStartTime = now
             }
         }
 
-        // ── Deep scroll ─────────────────────────────────────────
+        // Deep scroll tracking
         if (unconsciousDetector.hasDetectedUnconsciousScrolling() && !deepScrollRecordedThisSession) {
             deepScrollRecordedThisSession = true
             serviceScope.launch {
@@ -190,13 +214,13 @@ class ScrollDetectorService : AccessibilityService() {
             }
         }
 
-        // ── Filter horizontal / fake scrolls ────────────────────
+        // Filter horizontal scrolls
         if (isScrollEvent && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             if (abs(event.scrollDeltaX) > abs(event.scrollDeltaY)) return
             if (event.scrollDeltaY == 0 && event.maxScrollY == 0) return
         }
 
-        // ── Accumulate time ──────────────────────────────────────
+        // Time accumulation
         val delta = now - lastEventTime
         accumulatedSessionTime += delta
         lastEventTime = now
@@ -216,22 +240,16 @@ class ScrollDetectorService : AccessibilityService() {
         scheduleSessionTimeout()
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // REEL HELPERS
-    // ─────────────────────────────────────────────────────────────
-
     private fun isReelsScroll(event: AccessibilityEvent): Boolean {
         if (event.eventType != AccessibilityEvent.TYPE_VIEW_SCROLLED) return false
         val pkg = event.packageName?.toString() ?: ""
         val className = event.className?.toString() ?: ""
 
-        // Loosened check: any scroll in Instagram that's not clearly a list/grid of photos
-        // or just detecting the main package.
         val matched = pkg == "com.instagram.android" &&
                 (className.contains("ViewPager") ||
                         className.contains("RecyclerView") ||
                         className.contains("LayoutManager") ||
-                        className.contains("FrameLayout")) // Some reels are wrapped in FrameLayouts
+                        className.contains("FrameLayout"))
 
         if (matched) {
             Log.d(TAG, "Reel scroll detected | class=$className")
@@ -243,63 +261,108 @@ class ScrollDetectorService : AccessibilityService() {
         reelsInSession++
 
         Log.d(TAG, "=== REEL VIEW RECORDED ===")
-        Log.d(TAG, "reelsInSession: $reelsInSession")
-        Log.d(TAG, "nextNotifyReel: $nextNotifyReel")
-        Log.d(TAG, "notifyAfterReels: $notifyAfterReels")
-        Log.d(TAG, "reelCountNotifyEnabled: $reelCountNotifyEnabled")
+        Log.d(TAG, "Total reels in session: $reelsInSession")
+        Log.d(TAG, "Next notification at: $nextNotifyReel")
+        Log.d(TAG, "Notify after reels: $notifyAfterReels")
+        Log.d(TAG, "Reel count notify enabled: $reelCountNotifyEnabled")
 
-        val shouldNotify = reelCountNotifyEnabled && reelsInSession >= nextNotifyReel
+        // Check if we should show notification
+        val now = System.currentTimeMillis()
+        val shouldNotify = reelCountNotifyEnabled &&
+                reelsInSession >= nextNotifyReel &&
+                (now - lastReelNotificationTime) >= MIN_NOTIFICATION_INTERVAL_MS
 
         if (shouldNotify) {
-            Log.d(TAG, "*** SHOULD NOTIFY! Showing notification for reel #$reelsInSession ***")
+            showReelCountNotification()
             nextNotifyReel += notifyAfterReels
-            Log.d(TAG, "Next notification at reel #$nextNotifyReel")
-
-            // Check notification permission on Android 13+
-            val hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                ActivityCompat.checkSelfPermission(
-                    applicationContext,
-                    android.Manifest.permission.POST_NOTIFICATIONS
-                ) == PackageManager.PERMISSION_GRANTED
-            } else {
-                true
-            }
-
-            if (hasPermission) {
-                serviceScope.launch {
-                    try {
-                        Log.d(TAG, "Calling NotificationHelper.showMindfulNotification")
-                        NotificationHelper.showMindfulNotification(
-                            applicationContext,
-                            reelsInSession,
-                            true
-                        )
-                        Log.d(TAG, "NotificationHelper call completed successfully")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error showing notification", e)
-                    }
-                }
-            } else {
-                Log.e(TAG, "Notification permission not granted for Android 13+")
-            }
+            lastReelNotificationTime = now
+            Log.d(TAG, "Next notification scheduled at reel #$nextNotifyReel")
         } else {
             Log.d(TAG, "No notification - conditions not met")
             if (!reelCountNotifyEnabled) {
                 Log.d(TAG, "  - reelCountNotifyEnabled is false")
             }
             if (reelsInSession < nextNotifyReel) {
-                Log.d(TAG, "  - need ${nextNotifyReel - reelsInSession} more reels until next notification")
+                val remaining = nextNotifyReel - reelsInSession
+                Log.d(TAG, "  - Need $remaining more reels until next notification")
+            }
+            if ((now - lastReelNotificationTime) < MIN_NOTIFICATION_INTERVAL_MS) {
+                val waitTime =
+                    (MIN_NOTIFICATION_INTERVAL_MS - (now - lastReelNotificationTime)) / 1000
+                Log.d(TAG, "  - Need to wait ${waitTime}s before next notification")
             }
         }
 
+        // Save to repository
         serviceScope.launch {
             statsRepository.incrementReels()
+            // Also save current reel count to shared preferences for persistence
+            saveReelCountToPreferences(reelsInSession)
         }
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // RAPID SCROLL
-    // ─────────────────────────────────────────────────────────────
+    private fun showReelCountNotification() {
+        Log.d(TAG, "*** SHOWING REEL COUNT NOTIFICATION #$reelsInSession ***")
+
+        // Check notification permission
+        val hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ActivityCompat.checkSelfPermission(
+                applicationContext,
+                android.Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+
+        if (hasPermission) {
+            try {
+                // Show notification with reel count
+                NotificationHelper.showMindfulNotification(
+                    applicationContext,
+                    reelsInSession,
+                    true
+                )
+
+                // Also show a summary notification for debugging
+                Log.d(TAG, "Notification shown successfully for $reelsInSession reels")
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error showing reel count notification", e)
+            }
+        } else {
+            Log.e(TAG, "Notification permission not granted for Android 13+")
+        }
+    }
+
+    private fun testReelCountNotification() {
+        // Test function to verify notification system works
+        Log.d(TAG, "Testing reel count notification system")
+        val hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ActivityCompat.checkSelfPermission(
+                applicationContext,
+                android.Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+
+        if (hasPermission && reelCountNotifyEnabled) {
+            NotificationHelper.showMindfulNotification(
+                applicationContext,
+                10, // Test with 10 reels
+                true
+            )
+            Log.d(TAG, "Test notification sent")
+        }
+    }
+
+    private fun saveReelCountToPreferences(count: Int) {
+        // Save current session reel count to be able to restore if needed
+        applicationContext.getSharedPreferences("reel_stats", MODE_PRIVATE)
+            .edit()
+            .putInt("last_session_reels", count)
+            .apply()
+    }
 
     private fun handleRapidScroll(now: Long) {
         val sinceLast = now - lastRapidScrollTime
@@ -307,14 +370,13 @@ class ScrollDetectorService : AccessibilityService() {
         lastRapidScrollTime = now
 
         if (rapidSwipeNotifyEnabled &&
-            accumulatedSessionTime >= 10_000L && // Reduced from 2 mins to 10s for testing
+            accumulatedSessionTime >= 10_000L &&
             rapidScrollStreak >= RAPID_SCROLL_STREAK_LIMIT &&
             now - lastUnconsciousNotificationTime > UNCONSCIOUS_COOLDOWN_MS
         ) {
             lastUnconsciousNotificationTime = now
             Log.d(TAG, "Rapid scroll detected! Showing notification")
 
-            // Check notification permission
             val hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 ActivityCompat.checkSelfPermission(
                     applicationContext,
@@ -329,15 +391,9 @@ class ScrollDetectorService : AccessibilityService() {
                     applicationContext,
                     UnconsciousType.RAPID_SWIPING
                 )
-            } else {
-                Log.e(TAG, "Notification permission not granted for rapid scroll notification")
             }
         }
     }
-
-    // ─────────────────────────────────────────────────────────────
-    // SESSION MANAGEMENT
-    // ─────────────────────────────────────────────────────────────
 
     private fun startSession(now: Long) {
         Log.d(TAG, "Starting new session at $now")
@@ -345,13 +401,19 @@ class ScrollDetectorService : AccessibilityService() {
         lastEventTime = now
         accumulatedSessionTime = 0L
         lastPersistedMs = 0L
+
+        // Reset reel tracking for new session
         nextNotifyReel = notifyAfterReels
         reelsInSession = 0
         currentWatchingReelIndex = -1
         lastWatchStartTime = now
         rapidScrollStreak = 0
+        lastReelNotificationTime = 0L
 
-        Log.d(TAG, "Session initialized: nextNotifyReel=$nextNotifyReel, notifyAfterReels=$notifyAfterReels")
+        Log.d(
+            TAG,
+            "Session initialized: notifyAfterReels=$notifyAfterReels, nextNotifyReel=$nextNotifyReel"
+        )
 
         serviceScope.launch {
             statsRepository.incrementSessions()
@@ -374,11 +436,20 @@ class ScrollDetectorService : AccessibilityService() {
         Log.d(TAG, "Ending session. Total reels viewed: $reelsInSession")
         syncJob?.cancel()
 
-        // Count the last reel if it was watched long enough
+        // Count the last reel if watched long enough
         if (currentWatchingReelIndex != -1 &&
             System.currentTimeMillis() - lastWatchStartTime >= MIN_WATCH_TIME_MS
         ) {
             recordReelView()
+        }
+
+        // Show final session summary if more than 10 reels watched
+        if (reelsInSession >= 10 && reelCountNotifyEnabled) {
+            NotificationHelper.showMindfulNotification(
+                applicationContext,
+                reelsInSession,
+                false
+            )
         }
 
         unconsciousDetector.resetSession()

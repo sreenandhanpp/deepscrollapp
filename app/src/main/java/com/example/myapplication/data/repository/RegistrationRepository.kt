@@ -2,7 +2,6 @@ package com.example.myapplication.data.repository
 
 import android.content.Context
 import android.provider.Settings
-import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -11,48 +10,58 @@ import com.example.myapplication.data.remote.RegisterRequest
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlin.random.Random
+import java.util.UUID
 
-private val Context.registrationStore by preferencesDataStore("registration")
+private val Context.registrationDataStore by preferencesDataStore("registration")
 
 class RegistrationRepository(
-    private val api: DeepScrollApi,
+    private val apiService: DeepScrollApi,
     private val context: Context
 ) {
-    private val childIdKey = stringPreferencesKey("child_id")
-    private val deviceIdKey = stringPreferencesKey("device_id")
-    private val registeredKey = booleanPreferencesKey("registered")
+    private val DEVICE_ID = stringPreferencesKey("device_id")
+    private val CHILD_ID = stringPreferencesKey("child_id")
+    private val REGISTRATION_STATUS = stringPreferencesKey("registration_status") // "PENDING", "REGISTERED"
 
-    val childIdFlow: Flow<String> = context.registrationStore.data.map { it[childIdKey] ?: "" }
-    val deviceIdFlow: Flow<String> = context.registrationStore.data.map { it[deviceIdKey] ?: "" }
+    val deviceIdFlow: Flow<String?> = context.registrationDataStore.data.map { it[DEVICE_ID] }
+    val childIdFlow: Flow<String?> = context.registrationDataStore.data.map { it[CHILD_ID] }
 
-    suspend fun registerDeviceIfNeeded(label: String = "Unknown Device"): Result<String> {
-        return ensureRegistered(label)
-    }
+    suspend fun registerDeviceIfNeeded() {
+        val prefs = context.registrationDataStore.data.first()
+        var deviceId = prefs[DEVICE_ID]
+        var childId = prefs[CHILD_ID]
+        val status = prefs[REGISTRATION_STATUS]
 
-    suspend fun ensureRegistered(label: String): Result<String> {
-        val current = context.registrationStore.data.map { it }.firstSnapshot()
-        if (current[registeredKey] == true) return Result.success(current[childIdKey].orEmpty())
+        if (status == "REGISTERED") return
 
-        val deviceId = current[deviceIdKey] ?: Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
-        val childId = current[childIdKey] ?: generateChildId()
-        context.registrationStore.edit {
-            it[deviceIdKey] = deviceId
-            it[childIdKey] = childId
+        if (deviceId == null) {
+            deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) 
+                ?: UUID.randomUUID().toString()
+            context.registrationDataStore.edit { it[DEVICE_ID] = deviceId }
         }
 
-        return runCatching {
-            val response = api.register(RegisterRequest(childId = childId, deviceId = deviceId, label = label))
-            require(response.isSuccessful)
-            context.registrationStore.edit { prefs -> prefs[registeredKey] = true }
-            childId
+        if (childId == null) {
+            childId = generateChildId()
+            context.registrationDataStore.edit { it[CHILD_ID] = childId }
+        }
+
+        try {
+            val response = apiService.register(
+                RegisterRequest(
+                    childId = childId,
+                    deviceId = deviceId,
+                    label = "My Kid"
+                )
+            )
+            if (response.isSuccessful) {
+                context.registrationDataStore.edit { it[REGISTRATION_STATUS] = "REGISTERED" }
+            }
+        } catch (e: Exception) {
+            // Retry later
         }
     }
 
     private fun generateChildId(): String {
         val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-        return buildString(7) { repeat(7) { append(chars[Random.nextInt(chars.length)]) } }
+        return (1..7).map { chars.random() }.joinToString("")
     }
 }
-
-private suspend fun <T> Flow<T>.firstSnapshot(): T = this.first()

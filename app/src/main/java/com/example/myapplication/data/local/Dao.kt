@@ -11,16 +11,12 @@ interface StatsDao {
     @Query("SELECT * FROM daily_stats WHERE date = :date")
     suspend fun getByDate(date: String): DailyStatEntity?
 
-    @Query("SELECT * FROM daily_stats WHERE date = :date")
-    fun observeByDate(date: String): Flow<DailyStatEntity?>
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(stat: DailyStatEntity)
 
     @Query("SELECT * FROM daily_stats")
     suspend fun getAllStatsSync(): List<DailyStatEntity>
 
-    // Increment methods
     @Query("UPDATE daily_stats SET reelsViewed = reelsViewed + 1 WHERE date = :date")
     suspend fun incrementReels(date: String)
 

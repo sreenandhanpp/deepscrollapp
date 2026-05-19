@@ -2,6 +2,7 @@ package com.example.myapplication.data.repository
 
 import android.content.Context
 import androidx.work.*
+import com.example.myapplication.sync.SyncWorker
 import java.util.concurrent.TimeUnit
 
 class SyncManager(private val context: Context) {

@@ -12,7 +12,11 @@ class SyncWorker(
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val container = AppContainer(applicationContext)
-        val deviceId = container.registrationRepository.childIdFlow.first().ifBlank { return Result.retry() }
+        val childId = container.registrationRepository.childIdFlow.first()
+        val deviceId = container.registrationRepository.deviceIdFlow.first() ?: return Result.failure()
+
+        if (childId.isNullOrBlank()) return Result.retry()
+
         return if (container.syncRepository.syncPending(deviceId)) Result.success() else Result.retry()
     }
 }

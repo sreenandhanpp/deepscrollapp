@@ -1,6 +1,8 @@
 package com.example.myapplication.data.local
 
+import android.content.Context
 import androidx.room.Database
+import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(entities = [DailyStatEntity::class, SyncQueueEntity::class], version = 1)
@@ -12,13 +14,13 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
-        fun getDatabase(context: android.content.Context): AppDatabase {
+        fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
-                val instance = androidx.room.Room.databaseBuilder(
+                val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "app_database"
-                ).build()
+                    "deepscroll_db"
+                ).fallbackToDestructiveMigration().build()
                 INSTANCE = instance
                 instance
             }
