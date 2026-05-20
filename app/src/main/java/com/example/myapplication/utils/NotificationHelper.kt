@@ -41,7 +41,7 @@ object NotificationHelper {
 
     fun showReelReminderNotification(
         context: Context,
-        milestoneReels: Int   // ← changed: this is now the milestone (5,10,15... or 1,2,3...)
+        milestoneReels: Int   // ← Now this is the cumulative reels count (2, 4, 6, 8...)
     ) {
         if (!hasPermission(context)) return
 

@@ -5,7 +5,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 
 object ApiClient {
 
-    private const val BASE_URL = "http://10.184.26.113:5000/"
+    private const val BASE_URL = "https://unscroll-backend.onrender.com/"
 
     val retrofit: Retrofit by lazy {
         Retrofit.Builder()

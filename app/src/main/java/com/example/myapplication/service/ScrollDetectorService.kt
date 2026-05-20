@@ -5,15 +5,23 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
-import androidx.work.*
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import com.example.myapplication.data.NotificationSettingsStore
 import com.example.myapplication.data.UsageDataStore
 import com.example.myapplication.data.analytics.UsageRepository
 import com.example.myapplication.data.sync.SyncWorker
 import com.example.myapplication.service.detector.UnconsciousScrollingDetector
 import com.example.myapplication.utils.NotificationHelper
-import kotlinx.coroutines.*
-import kotlin.math.abs
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 class ScrollDetectorService : AccessibilityService() {
 
@@ -30,17 +38,28 @@ class ScrollDetectorService : AccessibilityService() {
 
     /* ================= INDEX TRACKING ================= */
     private var lastIndex = -1
+    private var lastSettledPage = -1  // for scrollY fallback
+
+    private val screenHeight by lazy { resources.displayMetrics.heightPixels }
     private var isFirstIndexIgnored = false
 
     /* ================= DELTA FALLBACK ================= */
     private var lastScrollY = 0
 
     /* ================= SESSION ================= */
+
+    /* ================= REEL TIME TRACKING ================= */
+    private var reelTimeStart = 0L
+    private var accumulatedReelTimeMs = 0L
+    private var lastReelScrollTime = 0L
+    private val REEL_IDLE_TIMEOUT_MS = 3000L  // stop counting if no scroll for 3s
     private var deepScrollRecordedThisSession = false
 
     private var sessionStartTime = 0L
     private var lastEventTime = 0L
     private var isSessionActive = false
+
+
     private var accumulatedSessionTime = 0L
     private var lastPersistedMs = 0L
 
@@ -55,8 +74,8 @@ class ScrollDetectorService : AccessibilityService() {
 
     // Guards against duplicate endSession calls
     private var lastSessionEndTime = 0L
-    private val MIN_TIME_BETWEEN_ENDS_MS = 2500L  // increased to 2.5 seconds
-    private var sessionIncrementedForCurrentSession = false  // Renamed to be clearer
+    private val MIN_TIME_BETWEEN_ENDS_MS = 2500L
+    private var sessionIncrementedForCurrentSession = false
 
     // Add a Job to collect setting changes
     private var settingsCollectorJob: Job? = null
@@ -94,18 +113,21 @@ class ScrollDetectorService : AccessibilityService() {
                         notifyAfterReels = newThreshold
 
                         // Recalculate next notification threshold intelligently
-                        // This ensures we don't lose progress or spam notifications
                         if (reelsViewed < nextNotifyReel) {
-                            // Still within current threshold, adjust target
                             val progress = reelsViewed % previousValue
                             nextNotifyReel = reelsViewed + (notifyAfterReels - progress)
                         } else {
-                            // Already past threshold, set next based on current value
                             nextNotifyReel = reelsViewed + notifyAfterReels
                         }
 
-                        Log.d("Settings", "Notification threshold updated from $previousValue to $notifyAfterReels reels")
-                        Log.d("Settings", "Current reels: $reelsViewed, Next notify at: $nextNotifyReel")
+                        Log.d(
+                            "Settings",
+                            "Notification threshold updated from $previousValue to $notifyAfterReels reels"
+                        )
+                        Log.d(
+                            "Settings",
+                            "Current reels: $reelsViewed, Next notify at: $nextNotifyReel"
+                        )
                     }
                 }
         }
@@ -114,15 +136,19 @@ class ScrollDetectorService : AccessibilityService() {
     /* ================================================= */
 
     private fun isReelsScroll(event: AccessibilityEvent): Boolean {
-        if (event.eventType != AccessibilityEvent.TYPE_VIEW_SCROLLED)
-            return false
+        if (event.eventType != AccessibilityEvent.TYPE_VIEW_SCROLLED) return false
 
         val pkg = event.packageName?.toString() ?: return false
         val className = event.className?.toString() ?: return false
 
+        Log.d(
+            "ClassSniffer",
+            "className=$className | toIndex=${event.toIndex} | scrollY=${event.scrollY}"
+        )
+
+        // Strict match only ViewPager - no other Instagram RecyclerViews
         return pkg == "com.instagram.android" &&
-                (className.contains("ViewPager") ||
-                        className.contains("RecyclerView"))
+                className == "androidx.viewpager.widget.ViewPager"
     }
 
     /* ================================================= */
@@ -138,10 +164,13 @@ class ScrollDetectorService : AccessibilityService() {
             pkg != "com.instagram.android" &&
             pkg != "android" &&
             pkg != "com.android.systemui" &&
-            pkg != "com.android.launcher3"  // common launcher packages
+            pkg != "com.android.launcher3"
         ) {
             if (isSessionActive) {
-                Log.d("Session", "App exit detected (pkg=$pkg, type=${event.eventType}) → ending session")
+                Log.d(
+                    "Session",
+                    "App exit detected (pkg=$pkg, type=${event.eventType}) → ending session"
+                )
                 endSession()
             }
             return
@@ -161,37 +190,54 @@ class ScrollDetectorService : AccessibilityService() {
         unconsciousDetector.onAccessibilityEvent(event, now, prevTime)
 
         /* ================= REEL DETECTION ================= */
+        /* ================= REEL DETECTION ================= */
         if (isReelsScroll(event)) {
             val toIndex = event.toIndex
-            val currentY = event.scrollY
-
-            var isForwardScroll = false
+            val scrollY = event.scrollY
 
             if (toIndex != -1) {
-                if (!isFirstIndexIgnored) {
-                    lastIndex = toIndex
-                    isFirstIndexIgnored = true
+                // toIndex path — most accurate, fires once per settled page
+                if (lastIndex == -1) {
+                    lastIndex = toIndex  // initialize, don't count
                     return
                 }
-                isForwardScroll = toIndex > lastIndex
-                lastIndex = toIndex
-            } else {
-                val deltaY = currentY - lastScrollY
-                lastScrollY = currentY
-                isForwardScroll = deltaY > 100
-            }
 
-            if (!isForwardScroll) return
+                val diff = toIndex - lastIndex
+                if (diff > 0) {
+                    lastIndex = toIndex
+                    reelsViewed += diff  // handles skip-jumps
 
-            if (now - lastReelEventTime > REEL_COOLDOWN_MS) {
-                reelsViewed++
-                lastReelEventTime = now
+                    Log.d("Reel Counter", "toIndex path | +$diff | total: $reelsViewed")
 
-                serviceScope.launch {
-                    usageRepository.incrementReelsViewed()
+                    repeat(diff) {
+                        serviceScope.launch { usageRepository.incrementReelsViewed() }
+                    }
+                    checkReelNotification()
                 }
 
-                checkReelNotification()
+            } else if (screenHeight > 0) {
+                // scrollY fallback — compute settled page from pixel offset
+                val currentPage = scrollY / screenHeight
+
+                if (lastSettledPage == -1) {
+                    lastSettledPage = currentPage  // initialize
+                    return
+                }
+
+                val diff = currentPage - lastSettledPage
+                if (diff > 0) {
+                    lastIndex = toIndex
+                    reelsViewed += diff
+
+                    handleReelTime(now)   // ← add this line only
+
+                    Log.d("Reel Counter", "toIndex path | +$diff | total: $reelsViewed")
+
+                    repeat(diff) {
+                        serviceScope.launch { usageRepository.incrementReelsViewed() }
+                    }
+                    checkReelNotification()
+                }
             }
         }
 
@@ -221,7 +267,6 @@ class ScrollDetectorService : AccessibilityService() {
             lastEventTime = now
             accumulatedSessionTime = 0L
             lastPersistedMs = 0L
-            // Reset the session increment flag when starting a new session
             sessionIncrementedForCurrentSession = false
             return
         }
@@ -232,7 +277,6 @@ class ScrollDetectorService : AccessibilityService() {
 
         val deltaSincePersist = accumulatedSessionTime - lastPersistedMs
 
-        // Save every 30 seconds instead of 60 seconds for more granular updates
         if (deltaSincePersist >= 30_000L) {
             serviceScope.launch {
                 UsageDataStore.addSessionTime(applicationContext, deltaSincePersist)
@@ -245,15 +289,22 @@ class ScrollDetectorService : AccessibilityService() {
     /* ================================================= */
 
     private fun checkReelNotification() {
+
         if (reelsViewed >= nextNotifyReel) {
+
+            // Send cumulative milestone
             NotificationHelper.showReelReminderNotification(
                 applicationContext,
-                notifyAfterReels  // Changed from nextNotifyReel to notifyAfterReels
+                nextNotifyReel
             )
+
+            // Move next target forward
             nextNotifyReel += notifyAfterReels
 
-            Log.d("Notifications", "Notification sent for $notifyAfterReels reels")
-            Log.d("Notifications", "Next notification at: $nextNotifyReel")
+            Log.d(
+                "ReelNotification",
+                "Next notification at: $nextNotifyReel"
+            )
         }
     }
 
@@ -276,7 +327,7 @@ class ScrollDetectorService : AccessibilityService() {
 
     override fun onDestroy() {
         Log.d("Service", "onDestroy called → forcing session end")
-        settingsCollectorJob?.cancel()  // Clean up the collector
+        settingsCollectorJob?.cancel()
         endSession()
         serviceScope.cancel()
         super.onDestroy()
@@ -305,6 +356,32 @@ class ScrollDetectorService : AccessibilityService() {
         }
     }
 
+    private fun handleReelTime(now: Long) {
+        if (lastReelScrollTime == 0L) {
+            reelTimeStart = now
+            lastReelScrollTime = now
+            return
+        }
+
+        val gapSinceLastScroll = now - lastReelScrollTime
+
+        if (gapSinceLastScroll > REEL_IDLE_TIMEOUT_MS) {
+            val chunk = lastReelScrollTime - reelTimeStart
+            if (chunk > 0) {
+                accumulatedReelTimeMs += chunk
+                val toFlush = accumulatedReelTimeMs
+                accumulatedReelTimeMs = 0L
+                serviceScope.launch {
+                    usageRepository.addSessionTime(toFlush)  // ← existing method
+                    Log.d("ReelTime", "Flushed reel chunk: ${toFlush / 1000}s")
+                }
+            }
+            reelTimeStart = now
+        }
+
+        lastReelScrollTime = now
+    }
+
     private fun endSession() {
         val now = System.currentTimeMillis()
 
@@ -317,39 +394,42 @@ class ScrollDetectorService : AccessibilityService() {
 
         lastSessionEndTime = now
 
-        // Only increment session count if we haven't already for this session
         val shouldIncrementSession = !sessionIncrementedForCurrentSession
 
         isSessionActive = false
 
         val remainingMs = accumulatedSessionTime - lastPersistedMs
-
-        // Always save remaining time, even if it's less than 10 seconds
-        // But ensure it's at least 1 second to avoid noise
         val finalRemainingMs = if (remainingMs > 0) remainingMs.coerceAtLeast(1000L) else 0L
-
-        // Write to BOTH storages
+        if (reelTimeStart > 0L && lastReelScrollTime > reelTimeStart) {
+            val finalChunk = (lastReelScrollTime - reelTimeStart) + accumulatedReelTimeMs
+            if (finalChunk >= 1000L) {
+                serviceScope.launch {
+                    usageRepository.addSessionTime(finalChunk)  // ← existing method
+                    Log.d("ReelTime", "Final reel time: ${finalChunk / 1000}s")
+                }
+            }
+        }
         serviceScope.launch {
             try {
-                // 1. Room (for sync + structured queries)
-                if (finalRemainingMs >= 1000L) {  // Save any meaningful duration (>= 1 second)
+                if (finalRemainingMs >= 1000L) {
                     usageRepository.addSessionTime(finalRemainingMs)
                 }
 
-                // Only increment session count once per session
                 if (shouldIncrementSession) {
                     usageRepository.incrementSession()
                     sessionIncrementedForCurrentSession = true
                     Log.d("DB_WRITE", "Session count incremented for this session")
                 }
 
-                // 2. DataStore (for quick local UI display)
-                if (finalRemainingMs >= 1000L) {  // Save any meaningful duration
+                if (finalRemainingMs >= 1000L) {
                     UsageDataStore.addSessionTime(applicationContext, finalRemainingMs)
                     Log.d("DB_WRITE", "Saved $finalRemainingMs ms to DataStore")
                 }
 
-                Log.d("DB_WRITE", "Final session persisted to Room + DataStore | final ms: $finalRemainingMs | incremented: $shouldIncrementSession")
+                Log.d(
+                    "DB_WRITE",
+                    "Final session persisted | final ms: $finalRemainingMs | incremented: $shouldIncrementSession"
+                )
             } catch (e: Exception) {
                 Log.e("DB_WRITE", "Final persistence failed", e)
             }
@@ -357,7 +437,10 @@ class ScrollDetectorService : AccessibilityService() {
 
         triggerImmediateSync()
 
-        Log.d("Session", "Session ended | sync requested | total min: ${accumulatedSessionTime / 60000} | remaining ms: $remainingMs")
+        Log.d(
+            "Session",
+            "Session ended | total reels in session: $reelsViewed | total time: ${accumulatedSessionTime / 60000} min"
+        )
 
         // Reset everything
         unconsciousDetector.resetSession()
@@ -366,18 +449,22 @@ class ScrollDetectorService : AccessibilityService() {
         lastEventTime = 0L
         accumulatedSessionTime = 0L
         lastPersistedMs = 0L
-        reelsViewed = 0
-        nextNotifyReel = notifyAfterReels  // Uses the latest value
+        reelsViewed = 0  // Reset for next session
+        nextNotifyReel = notifyAfterReels
         lastReelEventTime = 0L
         lastIndex = -1
+        lastSettledPage = -1   // ← add this
         isFirstIndexIgnored = false
         lastScrollY = 0
+        lastReelEventTime = 0L
+        isFirstIndexIgnored = false
+        lastScrollY = 0
+        reelTimeStart = 0L
+        lastReelScrollTime = 0L
+        accumulatedReelTimeMs = 0L
 
         endSessionRunnable?.let { handler.removeCallbacks(it) }
         endSessionRunnable = null
-
-        // Note: We don't reset sessionIncrementedForCurrentSession here
-        // because it will be reset when a new session starts in handleSessionTime()
     }
 
     override fun onInterrupt() {
